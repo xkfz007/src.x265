@@ -1747,11 +1747,13 @@ double RateControl::tuneAbrQScaleFromFeedback(double qScale)
         }
 #endif
 
-        if (wantedBits > 0 && encodedBits > 0 || (
+        if (wantedBits > 0 && encodedBits > 0 && (
 #if AMORTIZE_IFRAME
-          !m_partialResidualFrames && 
+          !m_partialResidualFrames  
+#else
+          1
 #endif
-            m_param->rc.bStrictCbr))
+            || m_param->rc.bStrictCbr))
         {
             abrBuffer *= X265_MAX(1, sqrt(timeDone));
             overflow = x265_clip3(.5, 2.0, 1.0 + (encodedBits - wantedBits) / abrBuffer);
