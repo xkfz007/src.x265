@@ -162,9 +162,10 @@ public:
     bool   m_isVbv;
     bool   m_isCbr;
     bool   m_singleFrameVbv;
-
+#if ABR_RESET
     bool   m_isAbrReset;
     int    m_lastAbrResetPoc;
+#endif
 
     double  m_rateTolerance;
     double m_frameDuration;     /* current frame duration in seconds */
@@ -205,9 +206,11 @@ public:
     int      m_framesDone;       /* # of frames passed through RateCotrol already */
     int64_t  m_encodedBits;      /* bits used for encoded frames (without ammortization) */
     double   m_fps;
+#if ABR_RESET
     int64_t  m_satdCostWindow[50];
     int      m_sliderPos;
     int64_t  m_encodedBitsWindow[50];
+#endif
     /* a common variable on which rateControlStart, rateControlEnd and rateControUpdateStats waits to
      * sync the calls to these functions. For example
      * -F2:

@@ -223,7 +223,7 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
     /* Calculate Qp offset for each 16x16 block in the frame */
     int block_xy = 0;
     int block_x = 0, block_y = 0;
-    double strength = 0.f;
+    double strength = 0.;
     if (m_param->rc.aqMode == X265_AQ_NONE || m_param->rc.aqStrength == 0)
     {
         /* Need to init it anyways for CU tree */
@@ -270,7 +270,7 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
             avg_adj /= m_ncu;
             avg_adj_pow2 /= m_ncu;
             strength = m_param->rc.aqStrength * avg_adj / bit_depth_correction;
-            avg_adj = avg_adj - 0.5f * (avg_adj_pow2 - (11.f * bit_depth_correction)) / avg_adj;
+            avg_adj = avg_adj - 0.5 * (avg_adj_pow2 - (11. * bit_depth_correction)) / avg_adj;
 
 #if DEBUG_AQ_PROCESS&&KEEP_AS265_SAME_WITH_X265
       {
@@ -282,7 +282,7 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
 #endif
         }
         else
-            strength = m_param->rc.aqStrength * 1.0397f;
+            strength = m_param->rc.aqStrength * 1.0397;
 
 #if DEBUG_AQ_PROCESS&&KEEP_AS265_SAME_WITH_X265
     {
@@ -297,6 +297,7 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
         {
             for (block_x = 0; block_x < maxCol; block_x += 16)
             {
+                uint32_t energy = 0;
                 if (m_param->rc.aqMode == X265_AQ_AUTO_VARIANCE)
                 {
                     qp_adj = curFrame->m_lowres.qpCuTreeOffset[block_xy];
@@ -304,7 +305,7 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
                 }
                 else
                 {
-                    uint32_t energy = acEnergyCu(curFrame, block_x, block_y);
+                    energy = acEnergyCu(curFrame, block_x, block_y);
                     qp_adj = strength * (X265_LOG2(X265_MAX(energy, 1)) - (14.427f + 2 * (X265_DEPTH - 8)));
                 }
                 curFrame->m_lowres.qpAqOffset[block_xy] = qp_adj;
@@ -543,8 +544,10 @@ RateControl::RateControl(x265_param *p)
     m_shortTermCplxSum = 0;
     m_shortTermCplxCount = 0;
     m_lastNonBPictType = I_SLICE;
+#if ABR_RESET
     m_isAbrReset = false;
     m_lastAbrResetPoc = -1;
+#endif
     m_statFileOut = NULL;
     m_cutreeStatFileOut = m_cutreeStatFileIn = NULL;
     m_rce2Pass = NULL;
@@ -753,12 +756,14 @@ bool RateControl::init(const SPS *sps)
     m_framesDone = 0;
     m_residualCost = 0;
     m_partialResidualCost = 0;
+#if ABR_RESET
     for (int i = 0; i < s_slidingWindowFrames; i++)
     {
         m_satdCostWindow[i] = 0;
         m_encodedBitsWindow[i] = 0;
     }
     m_sliderPos = 0;
+#endif
 
     /* 720p videos seem to be a good cutoff for cplxrSum */
     double tuneCplxFactor = (m_param->rc.cuTree && m_ncu > 3600) ? 2.5 : 1;
@@ -1358,7 +1363,6 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
         m_startEndOrder.incr();
         return 0;
     }
-    double q;
     FrameData& curEncData = *curFrame->m_encData;
     m_curSlice = curEncData.m_slice;
     m_sliceType = m_curSlice->m_sliceType;
@@ -1379,6 +1383,7 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
     rce->bufferRate = m_bufferRate;
     rce->rowCplxrSum = 0.0;
     rce->rowTotalBits = 0;
+    double q;
     if (m_isVbv)
     {
         if (rce->rowPreds[0][0].count == 0)
@@ -2245,7 +2250,7 @@ void RateControl::rateControlUpdateStats(RateControlEntry* rce)
     if (rce->encodeOrder < m_param->frameNumThreads - 1)
         m_startEndOrder.incr(); // faked rateControlEnd calls for negative frames
 }
-
+#if ABR_RESET
 void RateControl::checkAndResetABR(RateControlEntry* rce, bool isFrameDone)
 {
     double abrBuffer = 2 * m_rateTolerance * m_bitrate;
@@ -2278,6 +2283,7 @@ void RateControl::checkAndResetABR(RateControlEntry* rce, bool isFrameDone)
         }
     }
 }
+#endif
 
 void RateControl::hrdFullness(SEIBufferingPeriod *seiBP)
 {
@@ -2762,7 +2768,7 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
         /* * Don't increase the row QPs until a sufficent amount of the bits of
          * the frame have been processed, in case a flat area at the top of the
          * frame was measured inaccurately. */
-        if (encodedBitsSoFar < 0.05f * rce->frameSizePlanned)
+        if (encodedBitsSoFar < 0.05 * rce->frameSizePlanned)
             qpMax = qpAbsoluteMax = prevRowQp;
 
         if (rce->sliceType != I_SLICE || (m_param->rc.bStrictCbr && rce->poc > 0))
@@ -3024,9 +3030,8 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
 #if KEEP_AS265_SAME_WITH_X265
           curEncData.m_avgQpRc = 0;
 #endif
-            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++)
+            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++){
                 curEncData.m_avgQpRc += curEncData.m_rowStat[i].sumQpRc;
-
 #if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265
         {
           FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
@@ -3034,6 +3039,7 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
           fclose(fp);
         }
 #endif
+            }
             curEncData.m_avgQpRc /= slice->m_sps->numCUsInFrame;
             rce->qpaRc = curEncData.m_avgQpRc;
 
@@ -3046,9 +3052,8 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
 #if KEEP_AS265_SAME_WITH_X265
       curEncData.m_avgQpAq = 0;
 #endif
-            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++)
+            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++){
                 curEncData.m_avgQpAq += curEncData.m_rowStat[i].sumQpAq;
-
 #if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265
         {
           FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
@@ -3056,6 +3061,7 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
           fclose(fp);
         }
 #endif
+            }
             curEncData.m_avgQpAq /= slice->m_sps->numCUsInFrame;
         }
     }

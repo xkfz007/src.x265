@@ -1590,7 +1590,7 @@ void Lookahead::cuTreeFinish(Lowres *frame, double averageDuration, int ref0Dist
     fclose(fp);
   }
 #endif
-    int fpsFactor = (int)(CLIP_DURATION(averageDuration) / CLIP_DURATION((double)m_param->fpsDenom / m_param->fpsNum) * 256);
+    int fpsFactor = (int)(CLIP_DURATION(averageDuration) / CLIP_DURATION((double)m_param->fpsDenom / m_param->fpsNum) * 256+0.5);
     double weightdelta = 0.0;
 
     if (ref0Distance && frame->weightedCostDelta[ref0Distance - 1] > 0)
@@ -1839,7 +1839,7 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         }
 
         fenc->bIntraCalculated = true;
-
+        score = fenc->costEst[b - p0][p1 - b];
         if (b != p1)
             score = (uint64_t)score * 100 / (130 + m_param->bFrameBias);
         if (b != p0 || b != p1) //Not Intra cost
@@ -2135,8 +2135,8 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
             {
                 /* Use previously calculated cost */
                 COPY2_IF_LT(bcost, *fenc_costs[i], listused, i + 1);
-                continue;
-            }
+                //continue;
+            }else{
             int numc = 0;
             MV mvc[4], mvp;
             MV *fenc_mv = fenc_mvs[i];
@@ -2191,6 +2191,7 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
         fclose(pf);
       }
 #endif
+        }
         if (bBidir)
         {
             ALIGN_VAR_32(pixel, subpelbuf0[X265_LOWRES_CU_SIZE * X265_LOWRES_CU_SIZE]);
