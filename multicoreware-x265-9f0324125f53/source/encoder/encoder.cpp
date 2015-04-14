@@ -810,6 +810,30 @@ void Encoder::printSummary()
         x265_log(m_param, X265_LOG_INFO, "lossless compression ratio %.2f::1\n", uncompressed / m_analyzeAll.m_accBits);
     }
 
+#if OUTPUT_RC_STAT
+  if(m_rateControl->m_isAbr) {
+    char rc_stats[512];
+    sprintf(rc_stats, "%s-RS%.2f_%.2f_%.2f_%.2f_%.2f_%d_%d_%.2f_%.2f-psnrY%.2f-ssimY%.4f.rcstat",
+            m_rateControl->rcinfo_filename,
+            m_rateControl->stat.curr_bitrate,
+            m_rateControl->stat.min_bitrate,
+            m_rateControl->stat.bitrate_1sec_sum/m_rateControl->stat.bitrate_1sec_cnt,
+            m_rateControl->stat.max_bitrate_1sec,
+            m_rateControl->stat.min_bitrate_1sec,
+            m_rateControl->stat.of_flag,
+            m_rateControl->stat.uf_flag,
+            m_rateControl->stat.qp_rc_sum / m_rateControl->stat.total_frames,
+            m_rateControl->stat.qp_aq_sum / m_rateControl->stat.total_frames,
+            m_analyzeAll.m_psnrSumY / m_rateControl->stat.total_frames,
+            m_analyzeAll.m_globalSsim / m_rateControl->stat.total_frames
+           );
+    int aa;
+    aa = remove(rc_stats);
+
+    aa = rename(m_rateControl->rcinfo_filename, rc_stats);
+
+  }
+#endif
     if (!m_param->bLogCuStats)
         return;
 

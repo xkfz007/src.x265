@@ -284,6 +284,13 @@ void Lookahead::getEstimatedPictureCost(Frame *curFrame)
         return;
     }
 
+#if DEBUG_FRMCOST_RECALC&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_FRMCOST_RECALC), "a");
+    fprintf(fp, "ENCODING:poc=%d,type=%d: p0=%d b=%d p1=%d\n", poc, slice->m_sliceType, p0, b, p1);
+    fclose(fp);
+  }
+#endif
     if (m_param->rc.cuTree && !m_param->rc.bStatRead)
         /* update row satds based on cutree offsets */
         curFrame->m_lowres.satdCost = frameCostRecalculate(frames, p0, p1, b);
@@ -292,6 +299,13 @@ void Lookahead::getEstimatedPictureCost(Frame *curFrame)
     else
         curFrame->m_lowres.satdCost = curFrame->m_lowres.costEst[b - p0][p1 - b];
 
+#if DEBUG_FRMCOST_RECALC&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_FRMCOST_RECALC), "a");
+    fprintf(fp, "poc=%lld p0=%d b=%d p1=%d satd=%d\n", poc, p0, b, p1, curFrame->m_lowres.satdCost);
+    fclose(fp);
+  }
+#endif
     if (m_param->rc.vbvBufferSize && m_param->rc.vbvMaxBitrate)
     {
         /* aggregate lowres row satds to CTU resolution */
@@ -326,7 +340,34 @@ void Lookahead::getEstimatedPictureCost(Frame *curFrame)
                 }
                 curFrame->m_encData->m_rowStat[row].satdForVbv += sum;
             }
+#if DEBUG_FRMCOST_RECALC&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_FRMCOST_RECALC), "a");
+        fprintf(fp, "row=%d row_satd=%d\n", row, curFrame->m_encData->m_rowStat[row].satdForVbv);
+        fclose(fp);
+      }
+#endif
         }
+
+#if DEBUG_FRMCOST_RECALC&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRMCOST_RECALC), "a");
+      int i_mb_xy = 0;
+      //int m_widthInCU = ((m_param->sourceWidth / 2) + X265_LOWRES_CU_SIZE - 1) >> X265_LOWRES_CU_BITS;
+      //int m_heightInCU = ((m_param->sourceHeight / 2) + X265_LOWRES_CU_SIZE - 1) >> X265_LOWRES_CU_BITS;
+      for(int j = 0; j < m_heightInCU; j++) {
+        for(int i = 0; i < m_widthInCU; i++) {
+          int i_mb_cost = curFrame->m_lowres.lowresCostForRc[i_mb_xy] & LOWRES_COST_MASK;
+          fprintf(pf, "%6d ", i_mb_cost);
+          i_mb_xy++;
+        }
+        fprintf(pf, "\n");
+        fflush(pf);
+      }
+      fclose(pf);
+
+    }
+#endif
     }
 }
 
@@ -562,7 +603,7 @@ void Lookahead::slicetypeDecide()
     m_outputQueueLock.release();
     m_outputAvailable.trigger();
 }
-
+#if !KEEP_AS265_SAME_WITH_X265
 void Lookahead::vbvLookahead(Lowres **frames, int numFrames, int keyframe)
 {
     int prevNonB = 0, curNonB = 1, idx = 0;
@@ -636,6 +677,114 @@ void Lookahead::vbvLookahead(Lowres **frames, int numFrames, int keyframe)
     frames[nextNonB]->plannedType[idx] = X265_TYPE_AUTO;
 }
 
+#else
+
+void Lookahead::vbvLookahead(Lowres** frames, int numFrames, int keyframe) {
+  int prevNonB = 0, curNonB = 1, idx = 0;
+  bool isNextNonB = false;
+
+  while(curNonB < numFrames && frames[curNonB]->sliceType == X265_TYPE_B)
+    curNonB++;
+
+  int nextNonB = keyframe ? prevNonB : curNonB;
+  int nextB = keyframe ? prevNonB + 1 : curNonB + 1;
+
+#if DEBUG_VBV_LOOKAHEAD
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+    fprintf(fp, "last_nonb=%d cur_nonb=%d next_nonb=%d\n", prevNonB, curNonB, nextNonB);
+    fclose(fp);
+  }
+#endif
+  while(curNonB < numFrames + !keyframe) {
+#if DEBUG_VBV_LOOKAHEAD
+    {
+      FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+      fprintf(fp, "while:last_nonb=%d cur_nonb=%d next_nonb=%d\n", prevNonB, curNonB, nextNonB);
+      fclose(fp);
+    }
+#endif
+    /* P/I cost: This shouldn't include the cost of nextNonB */
+    if(nextNonB != curNonB) {
+#if DEBUG_VBV_LOOKAHEAD
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+        fprintf(fp, "if:cur_nonb poc=%lld frames[%d]->i_type=%d\n",
+        frames[curNonB]->frameNum, curNonB, frames[curNonB]->sliceType);
+        fclose(fp);
+      }
+#endif
+      int p0 = IS_X265_TYPE_I(frames[curNonB]->sliceType) ? curNonB : prevNonB;
+      frames[nextNonB]->plannedSatd[idx] = vbvFrameCost(frames, p0, curNonB, curNonB);
+      frames[nextNonB]->plannedType[idx] = frames[curNonB]->sliceType;
+#if DEBUG_VBV_LOOKAHEAD
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+        fprintf(fp, "if:next_nonb poc=%d idx=%d frames[%d]->i_planned_satd[%d]=%d ->i_planned_type[%d]=%d\n",
+                frames[nextNonB]->frameNum, idx,
+                nextNonB, idx, frames[nextNonB]->plannedSatd[idx],
+                idx, frames[nextNonB]->plannedType[idx]);
+        fclose(fp);
+      }
+#endif
+      idx++;
+    }
+    /* Handle the B-frames: coded order */
+    for(int i = prevNonB + 1; i < curNonB; i++, idx++) {
+      frames[nextNonB]->plannedSatd[idx] = vbvFrameCost(frames, prevNonB, curNonB, i);
+      frames[nextNonB]->plannedType[idx] = X265_TYPE_B;
+#if DEBUG_VBV_LOOKAHEAD
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+        fprintf(fp, "for:i=%d poc=%d idx=%d frames[%d]->i_planned_satd[%d]=%d ->i_planned_type[%d]=%d\n",
+                i, frames[nextNonB]->frameNum,
+                idx, nextNonB, idx, frames[nextNonB]->plannedSatd[idx],
+                idx, frames[nextNonB]->plannedType[idx]);
+        fclose(fp);
+      }
+#endif
+    }
+#if 0
+    for(int i = nextB; i <= curNonB; i++) {
+      for(int j = frames[i]->indB + i + 1; j <= curNonB; j++, frames[i]->indB++) {
+        if(j == curNonB) {
+          if(isNextNonB) {
+            int p0 = IS_X265_TYPE_I(frames[curNonB]->sliceType) ? curNonB : prevNonB;
+            frames[i]->plannedSatd[frames[i]->indB] = vbvFrameCost(frames, p0, curNonB, curNonB);
+            frames[i]->plannedType[frames[i]->indB] = frames[curNonB]->sliceType;
+          }
+        } else {
+          frames[i]->plannedSatd[frames[i]->indB] = vbvFrameCost(frames, prevNonB, curNonB, j);
+          frames[i]->plannedType[frames[i]->indB] = X265_TYPE_B;
+        }
+      }
+      if(i == curNonB && !isNextNonB)
+        isNextNonB = true;
+    }
+#endif
+    prevNonB = curNonB;
+    curNonB++;
+    while(curNonB <= numFrames && frames[curNonB]->sliceType == X265_TYPE_B)
+      curNonB++;
+#if DEBUG_VBV_LOOKAHEAD
+    {
+      FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+      fprintf(fp, "last_nonb=%d cur_nonb=%d next_nonb=%d\n", prevNonB, curNonB, nextNonB);
+      fclose(fp);
+    }
+#endif
+  }
+
+  frames[nextNonB]->plannedType[idx] = X265_TYPE_AUTO;
+#if DEBUG_VBV_LOOKAHEAD
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+    fprintf(fp, "last_nonb=%d cur_nonb=%d next_nonb=%d idx=%d\n\n", prevNonB, curNonB, nextNonB, idx);
+    fclose(fp);
+  }
+#endif
+}
+#endif
 int64_t Lookahead::vbvFrameCost(Lowres **frames, int p0, int p1, int b)
 {
     int64_t cost = m_est.estimateFrameCost(frames, p0, p1, b, 0);
@@ -658,6 +807,17 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
     int resetStart;
     bool bIsVbvLookahead = m_param->rc.vbvBufferSize && m_param->lookaheadDepth;
 
+#if DEBUG_VBV_LOOKAHEAD&&KEEP_AS265_SAME_WITH_X265
+  {
+    static int kk = 0;
+    FILE* fp;
+    if(kk == 0) {
+      fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "w");
+      kk = 1;
+      fclose(fp);
+    }
+  }
+#endif
     /* count undecided frames */
     for (framecnt = 0; framecnt < maxSearch; framecnt++)
     {
@@ -696,6 +856,17 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
         return;
     }
 
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+  {
+    static int kk = 0;
+    FILE* fp;
+    if(kk == 0) {
+      fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "w");
+      kk = 1;
+      fclose(fp);
+    }
+  }
+#endif
     if (m_param->bframes)
     {
         if (m_param->bFrameAdaptive == X265_B_ADAPT_TRELLIS)
@@ -705,6 +876,13 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
                 char best_paths[X265_BFRAME_MAX + 1][X265_LOOKAHEAD_MAX + 1] = { "", "P" };
                 int best_path_index = numFrames % (X265_BFRAME_MAX + 1);
 
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+        {
+          FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+          fprintf(fp, "num_frames=%d best_path_index=%d\n", numFrames, best_path_index);
+          fclose(fp);
+        }
+#endif
                 /* Perform the frametype analysis. */
                 for (int j = 2; j <= numFrames; j++)
                 {
@@ -713,11 +891,30 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
 
                 numBFrames = (int)strspn(best_paths[best_path_index], "B");
 
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+        {
+          FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+          fprintf(fp, "num_bframes=%d\n", numBFrames);
+          for(int i = 1; i < numFrames; i++) {
+            fprintf(fp, "Before:i=%d poc=%d i_type=%d\n", i, frames[i]->frameNum, frames[i]->sliceType);
+          }
+          fclose(fp);
+        }
+#endif
                 /* Load the results of the analysis into the frame types. */
                 for (int j = 1; j < numFrames; j++)
                 {
                     frames[j]->sliceType = best_paths[best_path_index][j - 1] == 'B' ? X265_TYPE_B : X265_TYPE_P;
                 }
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+        {
+          FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+          for(int i = 1; i < numFrames; i++) {
+            fprintf(fp, "After:i=%d poc=%d i_type=%d\n", i, frames[i]->frameNum, frames[i]->sliceType);
+          }
+          fclose(fp);
+        }
+#endif
             }
             frames[numFrames]->sliceType = X265_TYPE_P;
         }
@@ -728,6 +925,13 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
             for (int i = 0; i <= numFrames - 2; )
             {
                 cost2p1 = m_est.estimateFrameCost(frames, i + 0, i + 2, i + 2, 1);
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+        {
+          FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+          fprintf(fp, "i=%d cost2p1=%d intra_mbs=%d mb_count=%d\n", i, cost2p1, frames[i + 2]->intraMbs[2], cuCount);
+          fclose(fp);
+        }
+#endif
                 if (frames[i + 2]->intraMbs[2] > cuCount / 2)
                 {
                     frames[i + 1]->sliceType = X265_TYPE_P;
@@ -740,6 +944,14 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
                 cost1p0 = m_est.estimateFrameCost(frames, i + 0, i + 1, i + 1, 0);
                 cost2p0 = m_est.estimateFrameCost(frames, i + 1, i + 2, i + 2, 0);
 
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+        {
+          FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+          fprintf(fp, "cost1b1=%d cost1p0=%d cost2p0=%d cost2p1=%d\n",
+                  cost1b1, cost1p0, cost2p0, cost2p1);
+          fclose(fp);
+        }
+#endif
                 if (cost1p0 + cost2p0 < cost1b1 + cost2p1)
                 {
                     frames[i + 1]->sliceType = X265_TYPE_P;
@@ -757,6 +969,13 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
                 {
                     int64_t pthresh = X265_MAX(INTER_THRESH - P_SENS_BIAS * (j - i - 1), INTER_THRESH / 10);
                     int64_t pcost = m_est.estimateFrameCost(frames, i + 0, j + 1, j + 1, 1);
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+          {
+            FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+            fprintf(fp, "j=%d pthresh=%lld pcost=%lld intra_mbs=%d\n", j, pthresh, pcost, frames[j + 1]->intraMbs[j - i + 1]);
+            fclose(fp);
+          }
+#endif
                     if (pcost > pthresh * cuCount || frames[j + 1]->intraMbs[j - i + 1] > cuCount / 3)
                         break;
                     frames[j]->sliceType = X265_TYPE_B;
@@ -771,6 +990,13 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
             {
                 numBFrames++;
             }
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+        fprintf(fp, "num_bframes=%d\n", numBFrames);
+        fclose(fp);
+      }
+#endif
         }
         else
         {
@@ -805,6 +1031,16 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
         resetStart = bKeyframe ? 1 : 2;
     }
 
+#if DEBUG_VBV_LOOKAHEAD&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+    fprintf(fp, "num_frames=%d num_bframes=%d reset_start=%d\n", numFrames, numBFrames, resetStart);
+    for(int i = 0; i <= numFrames; i++) {
+      fprintf(fp, "i=%d poc=%d i_type=%d\n", i, frames[i]->frameNum, frames[i]->sliceType);
+    }
+    fclose(fp);
+  }
+#endif
     if (m_param->rc.cuTree)
         cuTree(frames, X265_MIN(numFrames, m_param->keyframeMax), bKeyframe);
 
@@ -823,6 +1059,16 @@ void Lookahead::slicetypeAnalyse(Lowres **frames, bool bKeyframe)
     {
         frames[j]->sliceType = X265_TYPE_AUTO;
     }
+#if DEBUG_VBV_LOOKAHEAD&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_VBV_LOOKAHEAD), "a");
+    fprintf(fp, "final:num_frames=%d num_bframes=%d reset_start=%d\n", numFrames, numBFrames, resetStart);
+    for(int i = 0; i <= numFrames; i++) {
+      fprintf(fp, "i=%d poc=%d i_type=%d\n", i, frames[i]->frameNum, frames[i]->sliceType);
+    }
+    fclose(fp);
+  }
+#endif
 }
 
 bool Lookahead::scenecut(Lowres **frames, int p0, int p1, bool bRealScenecut, int numFrames, int maxSearch)
@@ -916,8 +1162,18 @@ void Lookahead::slicetypePath(Lowres **frames, int length, char(*best_paths)[X26
     char paths[2][X265_LOOKAHEAD_MAX + 1];
     int num_paths = X265_MIN(m_param->bframes + 1, length);
     int64_t best_cost = 1LL << 62;
+#if KEEP_AS265_SAME_WITH_X265
+  best_cost = 1LL << 28;
+#endif
     int idx = 0;
 
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+    fprintf(fp, "length=%d num_paths=%d best_cost=%lld\n", length, num_paths, best_cost);
+    fclose(fp);
+  }
+#endif
     /* Iterate over all currently possible paths */
     for (int path = 0; path < num_paths; path++)
     {
@@ -927,6 +1183,13 @@ void Lookahead::slicetypePath(Lowres **frames, int length, char(*best_paths)[X26
         memset(paths[idx] + len, 'B', path);
         strcpy(paths[idx] + len + path, "P");
 
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+      fprintf(fp, "path=%d:idx=%d path=%s\n", path, idx, paths[idx]);
+      fclose(fp);
+    }
+#endif
         /* Calculate the actual cost of the current path */
         int64_t cost = slicetypePathCost(frames, paths[idx], best_cost);
         if (cost < best_cost)
@@ -934,10 +1197,26 @@ void Lookahead::slicetypePath(Lowres **frames, int length, char(*best_paths)[X26
             best_cost = cost;
             idx ^= 1;
         }
+
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+      fprintf(fp, "cost=%lld best_cost=%lld idx=%d\n", cost, best_cost, idx);
+      fclose(fp);
+    }
+#endif
     }
 
     /* Store the best path. */
     memcpy(best_paths[length % (X265_BFRAME_MAX + 1)], paths[idx ^ 1], length);
+
+#if DEBUG_B_FRAME_ADAPTIVE&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_B_FRAME_ADAPTIVE), "a");
+    fprintf(fp, "best_paths=%s\n", best_paths[length % (X265_BFRAME_MAX + 1)]);
+    fclose(fp);
+  }
+#endif
 }
 
 int64_t Lookahead::slicetypePathCost(Lowres **frames, char *path, int64_t threshold)
@@ -1111,10 +1390,26 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
     if (!referenced)
         memset(frames[b]->propagateCost, 0, m_widthInCU * sizeof(uint16_t));
 
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+    fprintf(fp, "dist_scale_factor=%d bipred_weight=%d widthInCU=%d heightInCU=%d fps_factor="FLOAT_FORMAT"\n",
+            distScaleFactor, bipredWeight, m_widthInCU, m_heightInCU, fpsFactor
+           );
+    fclose(fp);
+  }
+#endif
     int32_t StrideInCU = m_widthInCU;
     for (uint16_t blocky = 0; blocky < m_heightInCU; blocky++)
     {
         int cuIndex = blocky * StrideInCU;
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+      fprintf(fp, "cuIndex=%d\n", cuIndex);
+      fclose(fp);
+    }
+#endif
         primitives.propagateCost(m_scratch, propagateCost,
                                  frames[b]->intraCost + cuIndex, frames[b]->lowresCosts[b - p0][p1 - b] + cuIndex,
                                  frames[b]->invQscaleFactor + cuIndex, &fpsFactor, m_widthInCU);
@@ -1124,11 +1419,26 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
         for (uint16_t blockx = 0; blockx < m_widthInCU; blockx++, cuIndex++)
         {
             int32_t propagate_amount = m_scratch[blockx];
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+        fprintf(fp, "mb_x=%d cuIndex=%d propagate_amount=%d\n", blockx, cuIndex, propagate_amount);
+        fclose(fp);
+      }
+#endif
             /* Don't propagate for an intra block. */
             if (propagate_amount > 0)
             {
                 /* Access width-2 bitfield. */
                 int32_t lists_used = frames[b]->lowresCosts[b - p0][p1 - b][cuIndex] >> LOWRES_COST_SHIFT;
+
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+        {
+          FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+          fprintf(fp, "lists_used=%d\n", lists_used);
+          fclose(fp);
+        }
+#endif
                 /* Follow the MVs to the previous frame(s). */
                 for (uint16_t list = 0; list < 2; list++)
                 {
@@ -1136,10 +1446,25 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
                     {
 #define CLIP_ADD(s, x) (s) = (uint16_t)X265_MIN((s) + (x), (1 << 16) - 1)
                         int32_t listamount = propagate_amount;
+
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+            {
+              FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+              fprintf(fp, "list=%d lists_used=%d listamount=%d\n", list, lists_used, listamount);
+              fclose(fp);
+            }
+#endif
                         /* Apply bipred weighting. */
                         if (lists_used == 3)
                             listamount = (listamount * bipredWeights[list] + 32) >> 6;
 
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+            {
+              FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+              fprintf(fp, "listamount=%d mv=[%d,%d] ref_costs=%d\n", listamount, mvs[list][cuIndex].x, mvs[list][cuIndex].y, refCosts[list][cuIndex]);
+              fclose(fp);
+            }
+#endif
                         /* Early termination for simple case of mv0. */
                         if (!mvs[list][cuIndex].word)
                         {
@@ -1147,6 +1472,13 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
                             continue;
                         }
 
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+            {
+              FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+              fprintf(fp, "ref_costs=%d\n", refCosts[list][cuIndex]);
+              fclose(fp);
+            }
+#endif
                         int32_t x = mvs[list][cuIndex].x;
                         int32_t y = mvs[list][cuIndex].y;
                         int32_t cux = (x >> 5) + blockx;
@@ -1155,6 +1487,15 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
                         int32_t idx1 = idx0 + 1;
                         int32_t idx2 = idx0 + StrideInCU;
                         int32_t idx3 = idx0 + StrideInCU + 1;
+
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+            {
+              FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+              fprintf(fp, "x=%d y=%d mbx=%d mby=%d idx0=%d idx1=%d idx2=%d idx3=%d\n",
+                      x, y, cux, cuy, idx0, idx1, idx2, idx3);
+              fclose(fp);
+            }
+#endif
                         x &= 31;
                         y &= 31;
                         int32_t idx0weight = (32 - y) * (32 - x);
@@ -1162,6 +1503,14 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
                         int32_t idx2weight = y * (32 - x);
                         int32_t idx3weight = y * x;
 
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+            {
+              FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+              fprintf(fp, "x=%d y=%d idx0w=%d idx1w=%d idx2w=%d idx3w=%d\n",
+                      x, y, idx0weight, idx1weight, idx2weight, idx3weight);
+              fclose(fp);
+            }
+#endif
                         /* We could just clip the MVs, but pixels that lie outside the frame probably shouldn't
                          * be counted. */
                         if (cux < m_widthInCU - 1 && cuy < m_heightInCU - 1 && cux >= 0 && cuy >= 0)
@@ -1170,17 +1519,57 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
                             CLIP_ADD(refCosts[list][idx1], (listamount * idx1weight + 512) >> 10);
                             CLIP_ADD(refCosts[list][idx2], (listamount * idx2weight + 512) >> 10);
                             CLIP_ADD(refCosts[list][idx3], (listamount * idx3weight + 512) >> 10);
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+              {
+                FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+                fprintf(fp, "ref_costs0=%d ref_costs1=%d ref_costs2=%d ref_costs3=%d\n",
+                        refCosts[list][idx0], refCosts[list][idx1], refCosts[list][idx2], refCosts[list][idx3]);
+                fclose(fp);
+              }
+#endif
                         }
                         else /* Check offsets individually */
                         {
-                            if (cux < m_widthInCU && cuy < m_heightInCU && cux >= 0 && cuy >= 0)
+                            if (cux < m_widthInCU && cuy < m_heightInCU && cux >= 0 && cuy >= 0){
                                 CLIP_ADD(refCosts[list][idx0], (listamount * idx0weight + 512) >> 10);
-                            if (cux + 1 < m_widthInCU && cuy < m_heightInCU && cux + 1 >= 0 && cuy >= 0)
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+                {
+                  FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+                  fprintf(fp, "ref_costs[%d][%d]=%d\n", list, idx0, refCosts[list][idx0]);
+                  fclose(fp);
+                }
+#endif
+              }
+                            if (cux + 1 < m_widthInCU && cuy < m_heightInCU && cux + 1 >= 0 && cuy >= 0){
                                 CLIP_ADD(refCosts[list][idx1], (listamount * idx1weight + 512) >> 10);
-                            if (cux < m_widthInCU && cuy + 1 < m_heightInCU && cux >= 0 && cuy + 1 >= 0)
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+                {
+                  FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+                  fprintf(fp, "ref_costs[%d][%d]=%d\n", list, idx1, refCosts[list][idx1]);
+                  fclose(fp);
+                }
+#endif
+              }
+                            if (cux < m_widthInCU && cuy + 1 < m_heightInCU && cux >= 0 && cuy + 1 >= 0){
                                 CLIP_ADD(refCosts[list][idx2], (listamount * idx2weight + 512) >> 10);
-                            if (cux + 1 < m_widthInCU && cuy + 1 < m_heightInCU && cux + 1 >= 0 && cuy + 1 >= 0)
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+                {
+                  FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+                  fprintf(fp, "ref_costs[%d][%d]=%d\n", list, idx2, refCosts[list][idx2]);
+                  fclose(fp);
+                }
+#endif
+              }
+                            if (cux + 1 < m_widthInCU && cuy + 1 < m_heightInCU && cux + 1 >= 0 && cuy + 1 >= 0){
                                 CLIP_ADD(refCosts[list][idx3], (listamount * idx3weight + 512) >> 10);
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+                {
+                  FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+                  fprintf(fp, "ref_costs[%d][%d]=%d\n", list, idx3, refCosts[list][idx3]);
+                  fclose(fp);
+                }
+#endif
+              }
                         }
                     }
                 }
@@ -1194,6 +1583,13 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
 
 void Lookahead::cuTreeFinish(Lowres *frame, double averageDuration, int ref0Distance)
 {
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+    fprintf(fp, "average_durattion="FLOAT_FORMAT" m_frameDuration="FLOAT_FORMAT"\n", averageDuration, (double)m_param->fpsDenom / m_param->fpsNum);
+    fclose(fp);
+  }
+#endif
     int fpsFactor = (int)(CLIP_DURATION(averageDuration) / CLIP_DURATION((double)m_param->fpsDenom / m_param->fpsNum) * 256);
     double weightdelta = 0.0;
 
@@ -1206,14 +1602,39 @@ void Lookahead::cuTreeFinish(Lowres *frame, double averageDuration, int ref0Dist
     int cuCount = m_widthInCU * m_heightInCU;
     double strength = 5.0 * (1.0 - m_param->rc.qCompress);
 
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+    fprintf(fp, "fps_factor=%d weightdelta="FLOAT_FORMAT" strength="FLOAT_FORMAT" cuCount=%d\n",
+            fpsFactor, weightdelta, strength, cuCount);
+    fclose(fp);
+  }
+#endif
     for (int cuIndex = 0; cuIndex < cuCount; cuIndex++)
     {
         int intracost = (frame->intraCost[cuIndex] * frame->invQscaleFactor[cuIndex] + 128) >> 8;
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+      fprintf(fp, "index=%d intra_cost=%d inv_qscale_factor=%d intra_cost=%d\n",
+              cuIndex, frame->intraCost[cuIndex], frame->invQscaleFactor[cuIndex], intracost);
+      fclose(fp);
+    }
+#endif
         if (intracost)
         {
             int propagateCost = (frame->propagateCost[cuIndex] * fpsFactor + 128) >> 8;
             double log2_ratio = X265_LOG2(intracost + propagateCost) - X265_LOG2(intracost) + weightdelta;
             frame->qpCuTreeOffset[cuIndex] = frame->qpAqOffset[cuIndex] - strength * log2_ratio;
+#if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+        fprintf(fp, "propagate_cost=%d log2_ratio="FLOAT_FORMAT" f_qp_offset="FLOAT_FORMAT" f_qp_offset_aq="FLOAT_FORMAT"\n",
+                propagateCost, log2_ratio, frame->qpCuTreeOffset[cuIndex], frame->qpAqOffset[cuIndex]
+               );
+        fclose(fp);
+      }
+#endif
         }
     }
 }
@@ -1235,6 +1656,14 @@ int64_t Lookahead::frameCostRecalculate(Lowres** frames, int p0, int p1, int b)
             int cuxy = cux + cuy * m_widthInCU;
             int cuCost = frames[b]->lowresCosts[b - p0][p1 - b][cuxy] & LOWRES_COST_MASK;
             double qp_adj = qp_offset[cuxy];
+#if DEBUG_FRMCOST_RECALC&&DEBUG_FRMCOST_RECALC_REAL&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_FRMCOST_RECALC), "a");
+        fprintf(fp, "poc=%d cuxy=%d cucost=%d qp_adj="FLOAT_FORMAT"\n",
+                frames[b]->frameNum, cuxy, cuCost, qp_offset[cuxy]);
+        fclose(fp);
+      }
+#endif
             cuCost = (cuCost * x265_exp2fix8(qp_adj) + 128) >> 8;
             rowSatd[cuy] += cuCost;
             if ((cuy > 0 && cuy < m_heightInCU - 1 &&
@@ -1243,6 +1672,13 @@ int64_t Lookahead::frameCostRecalculate(Lowres** frames, int p0, int p1, int b)
             {
                 score += cuCost;
             }
+#if DEBUG_FRMCOST_RECALC&&DEBUG_FRMCOST_RECALC_REAL&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_FRMCOST_RECALC), "a");
+        fprintf(fp, "cucost=%d score=%d\n", cuCost, score);
+        fclose(fp);
+      }
+#endif
         }
     }
 
@@ -1316,6 +1752,17 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
     int64_t score = 0;
     Lowres *fenc = frames[b];
 
+#if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
+  {
+    static int kk = 0;
+    FILE* fp;
+    if(kk == 0) {
+      fp = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "w");
+      kk = 1;
+      fclose(fp);
+    }
+  }
+#endif
     if (fenc->costEst[b - p0][p1 - b] >= 0 && fenc->rowSatds[b - p0][p1 - b][0] != -1)
         score = fenc->costEst[b - p0][p1 - b];
     else
@@ -1339,6 +1786,13 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         m_curp0 = p0;
         m_curp1 = p1;
         m_curframes = frames;
+#if FIX_COSTEST_BUG&&KEEP_AS265_SAME_WITH_X265
+    if(!fenc->bIntraCalculated) {
+      fenc->costEst[0][0] = 0;
+      fenc->costEstAq[0][0] = 0;
+    }
+    fenc->intraMbs[b - p0] = 0;
+#endif
         fenc->costEst[b - p0][p1 - b] = 0;
         fenc->costEstAq[b - p0][p1 - b] = 0;
 
@@ -1374,7 +1828,7 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         // Accumulate cost from each row
         for (int row = 0; row < m_heightInCU; row++)
         {
-            score += m_rows[row].m_costEst;
+            fenc->costEst[b - p0][p1 - b] += m_rows[row].m_costEst;
             fenc->costEst[0][0] += m_rows[row].m_costIntra;
             if (m_param->rc.aqMode)
             {
@@ -1390,6 +1844,26 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
             score = (uint64_t)score * 100 / (130 + m_param->bFrameBias);
         if (b != p0 || b != p1) //Not Intra cost
             fenc->costEst[b - p0][p1 - b] = score;
+
+#if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      int tmp_score = 0;
+      int tmp_score2 = 0;
+      fprintf(pf, "p0=%d b=%d p1=%d\n", p0, b, p1);
+      for(int i = 0; i < m_heightInCU * m_widthInCU; i++) {
+        int tmp_cost = fenc->lowresCosts[b - p0][p1 - b][i] & LOWRES_COST_MASK;
+        int tmp_cost2 = fenc->lowresCosts[0][0][i] & LOWRES_COST_MASK;
+        tmp_score += tmp_cost;
+        tmp_score2 += tmp_cost2;
+        fprintf(pf, "i=%d:tmp_cost=%d tmp_score=%d tmp_cost2=%d tmp_score2=%d\n",
+                i, tmp_cost, tmp_score, tmp_cost2, tmp_score2);
+      }
+      fprintf(pf, "Frame cost(%d): %d %d\n", fenc->frameNum, fenc->costEst[b - p0][p1 - b], fenc->costEst[0][0]);
+      fclose(pf);
+    }
+
+#endif
     }
 
     if (bIntraPenalty)
@@ -1398,6 +1872,14 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         int ncu = NUM_CUS;
         score += (uint64_t)score * fenc->intraMbs[b - p0] / (ncu * 8);
     }
+#if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+    fprintf(pf, "Frame cost(%lld): %d intra_mbs=%d nmb=%d\n", fenc->frameNum, score, fenc->intraMbs[b - p0], NUM_CUS);
+    fclose(pf);
+  }
+
+#endif
     return score;
 }
 
@@ -1573,6 +2055,24 @@ void EstimateRow::init()
     m_completed = 0;
 }
 
+#define OUTPUT_CU_PIXEL(frm,idx) do{\
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");\
+    fprintf(pf, "%s:CU(%lld:%d,%d):\n",#frm,frm->frameNum, cux, cuy);\
+    int i_stride=frm->lumaStride;\
+    for(int y = -8; y < 8; y++) {\
+      if(!y)\
+        fprintf(pf, "-----------------------------------------------------------------\n");\
+      for(int x = -8; x < 8; x++) {\
+        if(!x)\
+          fprintf(pf, "|%4d", (&frm->lowresPlane[idx][pelOffset])[x + y * i_stride]);\
+        else\
+          fprintf(pf, "%4d", (&frm->lowresPlane[idx][pelOffset])[x + y * i_stride]);\
+      }\
+      fprintf(pf, "\n");\
+    }\
+    fflush(pf);\
+    fclose(pf);\
+  }while(0)
 void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int cux, int cuy, int p0, int p1, int b, bool bDoSearch[2])
 {
     Lowres *fref1 = frames[p1];
@@ -1599,6 +2099,9 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
 
     MV mvmin, mvmax;
     int bcost = m_me.COST_MAX;
+#if KEEP_AS265_SAME_WITH_X265
+  int i_inter_cost = 0, i_intra_cost = 0;
+#endif
     int listused = 0;
 
     // establish search bounds that don't cross extended frame boundaries
@@ -1607,8 +2110,25 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
     mvmax.x = (int16_t)((m_widthInCU - cux - 1) * cuSize + 8);
     mvmax.y = (int16_t)((m_heightInCU - cuy - 1) * cuSize + 8);
 
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_PIXEL_INFO&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+  OUTPUT_CU_PIXEL(fenc, 0);
+#endif
     if (p0 != p1)
     {
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_PIXEL_INFO&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+    Lowres* fref0 = frames[p0];
+    OUTPUT_CU_PIXEL(fref0, 0);
+    OUTPUT_CU_PIXEL(fref0, 1);
+    OUTPUT_CU_PIXEL(fref0, 2);
+    OUTPUT_CU_PIXEL(fref0, 3);
+    if(bBidir) {
+      OUTPUT_CU_PIXEL(fref1, 0);
+      OUTPUT_CU_PIXEL(fref1, 1);
+      OUTPUT_CU_PIXEL(fref1, 2);
+      OUTPUT_CU_PIXEL(fref1, 3);
+
+    }
+#endif
         for (int i = 0; i < 1 + bBidir; i++)
         {
             if (!bDoSearch[i])
@@ -1642,10 +2162,35 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
             {
                 median_mv(mvp, mvc[0], mvc[1], mvc[2]);
             }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+        {
+          FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+          for(int i = 0; i < numc; i++) {
+            fprintf(pf, "\tmvc[%d]=(%d,%d) \n", i, mvc[i].x, mvc[i].y);
+          }
+          fclose(pf);
+        }
+#endif
 
             *fenc_costs[i] = m_me.motionEstimate(i ? fref1 : wfref0, mvmin, mvmax, mvp, numc, mvc, m_merange, *fenc_mvs[i]);
             COPY2_IF_LT(bcost, *fenc_costs[i], listused, i + 1);
         }
+
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "\tfenc_mvs[%d]=(%d,%d) \n", cuXY, (*fenc_mvs[i]).x, (*fenc_mvs[i]).y);
+        fclose(pf);
+      }
+#endif
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "Inter cost: %d\n", *fenc_costs[i]);
+        fflush(pf);
+        fclose(pf);
+      }
+#endif
         if (bBidir)
         {
             ALIGN_VAR_32(pixel, subpelbuf0[X265_LOWRES_CU_SIZE * X265_LOWRES_CU_SIZE]);
@@ -1656,16 +2201,70 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
 
             ALIGN_VAR_32(pixel, ref[X265_LOWRES_CU_SIZE * X265_LOWRES_CU_SIZE]);
             primitives.pu[LUMA_8x8].pixelavg_pp(ref, X265_LOWRES_CU_SIZE, src0, stride0, src1, stride1, 32);
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        pixel* tmp_p1 = fenc->lowresPlane[0] + pelOffset;
+        pixel* tmp_p2 = ref;
+        fprintf(pf, "SRC:\t\t\t\tAVG:\n");
+        for(int j = 0; j < 8; j++) {
+          for(int i = 0; i < 8; i++) {
+            fprintf(pf, "%4d", tmp_p1[i + j * fenc->lumaStride]);
+          }
+          fprintf(pf, "|");
+          for(int i = 0; i < 8; i++) {
+            fprintf(pf, "%4d", tmp_p2[i + j * X265_LOWRES_CU_SIZE]);
+          }
+          fprintf(pf, "\n");
+        }
+        fclose(pf);
+      }
+#endif
             int bicost = primitives.pu[LUMA_8x8].satd(fenc->lowresPlane[0] + pelOffset, fenc->lumaStride, ref, X265_LOWRES_CU_SIZE);
             COPY2_IF_LT(bcost, bicost, listused, 3);
-
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "bidir: bcost=%d icost=%d\n", bcost, bicost);
+        fclose(pf);
+      }
+#endif
             // Try 0,0 candidates
             src0 = wfref0->lowresPlane[0] + pelOffset;
             src1 = fref1->lowresPlane[0] + pelOffset;
             primitives.pu[LUMA_8x8].pixelavg_pp(ref, X265_LOWRES_CU_SIZE, src0, wfref0->lumaStride, src1, fref1->lumaStride, 32);
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        pixel* tmp_p1 = fenc->lowresPlane[0] + pelOffset;
+        pixel* tmp_p2 = ref;
+        fprintf(pf, "SRC:\t\t\t\tAVG:\n");
+        for(int j = 0; j < 8; j++) {
+          for(int i = 0; i < 8; i++) {
+            fprintf(pf, "%4d", tmp_p1[i + j * fenc->lumaStride]);
+          }
+          fprintf(pf, "|");
+          for(int i = 0; i < 8; i++) {
+            fprintf(pf, "%4d", tmp_p2[i + j * X265_LOWRES_CU_SIZE]);
+          }
+          fprintf(pf, "\n");
+        }
+        fclose(pf);
+      }
+#endif
             bicost = primitives.pu[LUMA_8x8].satd(fenc->lowresPlane[0] + pelOffset, fenc->lumaStride, ref, X265_LOWRES_CU_SIZE);
             COPY2_IF_LT(bcost, bicost, listused, 3);
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "bidir: bcost=%d icost=%d\n", bcost, bicost);
+        fclose(pf);
+      }
+#endif
         }
+#if KEEP_AS265_SAME_WITH_X265
+    i_inter_cost = bcost;
+#endif
     }
 
     if (!fenc->bIntraCalculated)
@@ -1705,18 +2304,88 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
             neighbours[1][cuSize2 + i] = (neighbours[0][cuSize2 + i - 1] + (neighbours[0][cuSize2 + i] << 1) + neighbours[0][cuSize2 + i + 1] + 2) >> 2;
         }
 
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_PIXEL_INFO&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf, "TOP0 :");
+      for(int i = 0; i < 2 * cuSize + 1; i++)
+        fprintf(pf, "%4d", neighbours[0][i]);
+      fflush(pf);
+      fprintf(pf, "\nLeft0:");
+      for(int i = 1; i < 2 * cuSize + 1; i++)
+        fprintf(pf, "%4d", neighbours[0][i + cuSize2]);
+      fflush(pf);
+
+      fprintf(pf, "\nTOP1 :");
+      for(int i = 0; i < 2 * cuSize + 1; i++)
+        fprintf(pf, "%4d", neighbours[1][i]);
+      fflush(pf);
+      fprintf(pf, "\nLeft1:");
+      for(int i = 1; i < 2 * cuSize + 1; i++)
+        fprintf(pf, "%4d", neighbours[1][i + cuSize2]);
+      fprintf(pf, "\n");
+      fflush(pf);
+      fclose(pf);
+    }
+#endif
+#if DEBUG_INTRA_PREDICT&&KEEP_AS265_SAME_WITH_X265
+#define PRINT_OUT_INTRA(INTRA_MODE,pix) do{\
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");\
+    fprintf(pf, "Intra pred:%d \n", INTRA_MODE);\
+    for(int j = 0; j < 8; j++) {\
+      for(int i = 0; i < 8; i++) {\
+        fprintf(pf, "%4d", pix[i + j * 8]);\
+      }\
+      fprintf(pf, "\n");\
+    }\
+    fclose(pf);\
+  }while(0)
+#define PRINT_OUT_INTRA_T(INTRA_MODE,pix) do{\
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");\
+    fprintf(pf, "Intra pred:%d \n", INTRA_MODE);\
+    for(int j = 0; j < 8; j++) {\
+      for(int i = 0; i < 8; i++) {\
+        fprintf(pf, "%4d", pix[j + i * 8]);\
+      }\
+      fprintf(pf, "\n");\
+    }\
+    fclose(pf);\
+  }while(0)
+#endif
         int icost = m_me.COST_MAX, ilowmode;
         primitives.cu[sizeIdx].intra_pred[DC_IDX](prediction, cuSize, neighbours[0], 0, (cuSize <= 16));
+#if DEBUG_INTRA_PREDICT&&KEEP_AS265_SAME_WITH_X265
+    PRINT_OUT_INTRA(DC_IDX, prediction);
+#endif
         int cost = m_me.bufSATD(prediction, cuSize);
         COPY2_IF_LT(icost, cost, ilowmode, DC_IDX);
 
         pixel *planar = (cuSize >= 8) ? neighbours[1] : neighbours[0];
         primitives.cu[sizeIdx].intra_pred[PLANAR_IDX](prediction, cuSize, planar, 0, 0);
+#if DEBUG_INTRA_PREDICT&&KEEP_AS265_SAME_WITH_X265
+    PRINT_OUT_INTRA(PLANAR_IDX, prediction);
+#endif
         cost = m_me.bufSATD(prediction, cuSize);
         COPY2_IF_LT(icost, cost, ilowmode, PLANAR_IDX);
+#if 0//DEBUG_INTRA_PREDICT
+    for(int i = 2; i < 35; i++) {
+      if(i < 18)
+        PRINT_OUT_INTRA_T(i, (m_predictions + i * predsize));
+      else
+        PRINT_OUT_INTRA(i, (m_predictions + i * predsize));
+    }
+#endif
 
         uint32_t mode, lowmode = 4;
         int acost = m_me.COST_MAX, filter;
+#if USE_ALL_INTRA&&KEEP_AS265_SAME_WITH_X265
+    for(mode = 2; mode < 35; mode += 1) {
+      filter = !!(g_intraFilterFlags[mode] & cuSize);
+      primitives.cu[sizeIdx].intra_pred[mode](prediction, cuSize, neighbours[filter], mode, cuSize <= 16);
+      cost = m_me.bufSATD(prediction, cuSize);
+      COPY2_IF_LT(acost, cost, lowmode, mode);
+    }
+#else
         for (mode = 5; mode < 35; mode += 5)
         {
             filter = !!(g_intraFilterFlags[mode] & cuSize);
@@ -1741,10 +2410,21 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
             cost = m_me.bufSATD(prediction, cuSize);
             COPY2_IF_LT(acost, cost, lowmode, mode);
         }
+#endif
         COPY2_IF_LT(icost, acost, ilowmode, lowmode);
 
         const int intraPenalty = 5 * m_lookAheadLambda;
         icost += intraPenalty + lowresPenalty; /* estimate intra signal cost */
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf, "Intra cost:%d\n", icost);
+      fclose(pf);
+    }
+#endif
+#if FIX_INTRACOST_BUG&&KEEP_AS265_SAME_WITH_X265
+    fenc->intra_cost[cuXY] = icost;
+#endif
         fenc->intraCost[cuXY] = icost;
         fenc->intraMode[cuXY] = (uint8_t)ilowmode;
 
@@ -1752,6 +2432,13 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
         if (bFrameScoreCU)
         {
             m_costIntra += icost;
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "output_intra[COST_EST]=%d\n", icost);
+        fclose(pf);
+      }
+#endif
             if (fenc->invQscaleFactor)
             {
                 icostAq = (icost * fenc->invQscaleFactor[cuXY] + 128) >> 8;
@@ -1760,15 +2447,34 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
         }
         fenc->rowSatds[0][0][cuy] += icostAq;
     }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+    fprintf(pf, "bcost:%d lowres_penalty=%d\n", bcost, lowresPenalty);
+    fclose(pf);
+  }
+#endif
+#if KEEP_AS265_SAME_WITH_X265
+  i_intra_cost = fenc->intraCost[cuXY];
+#endif
     bcost += lowresPenalty;
     if (!bBidir)
+    {  
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_CU_INFO&&KEEP_AS265_SAME_WITH_X265
     {
+      bool b_intra = fenc->intraCost[cuXY] < bcost;
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf, "b_intra=%d b_frame_score_cu=%d\n", b_intra, bFrameScoreCU);
+      fclose(pf);
+    }
+#endif 
         if (fenc->intraCost[cuXY] < bcost)
         {
             if (bFrameScoreCU) m_intraMbs++;
             bcost = fenc->intraCost[cuXY];
             listused = 0;
         }
+
     }
 
     /* For I frames these costs were accumulated earlier */
@@ -1778,6 +2484,13 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
         if (bFrameScoreCU)
         {
             m_costEst += bcost;
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "output_inter[COST_EST]=%d\n", bcost);
+        fclose(pf);
+      }
+#endif
             if (fenc->invQscaleFactor)
             {
                 bcostAq = (bcost * fenc->invQscaleFactor[cuXY] + 128) >> 8;
@@ -1787,4 +2500,14 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
         fenc->rowSatds[b - p0][p1 - b][cuy] += bcostAq;
     }
     fenc->lowresCosts[b - p0][p1 - b][cuXY] = (uint16_t)(X265_MIN(bcost, LOWRES_COST_MASK) | (listused << LOWRES_COST_SHIFT));
+
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_CU_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
+  {
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+    fprintf(pf, "Final MB cost(%lld:%d,%d):intra=%d inter=%d final=%d lowres_costs=%d\n",
+            fenc->frameNum, cux, cuy, i_intra_cost, i_inter_cost, bcost,
+            fenc->lowresCosts[b - p0][p1 - b][cuXY]);
+    fclose(pf);
+  }
+#endif
 }

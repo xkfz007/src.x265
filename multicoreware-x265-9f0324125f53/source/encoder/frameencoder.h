@@ -196,6 +196,9 @@ public:
     FrameFilter              m_frameFilter;
     NALList                  m_nalList;
 
+#if FIX_COST_BUG&&KEEP_AS265_SAME_WITH_X265
+    void calcCTUCost(uint32_t cuAddr);
+#endif
 protected:
 
     bool initializeGeoms();
