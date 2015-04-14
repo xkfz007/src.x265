@@ -75,7 +75,7 @@ struct ThreadLocalData;
 class Encoder : public x265_encoder
 {
 private:
-
+public:
     int                m_pocLast;         // time index (POC)
     int                m_encodedFrameNum;
     int                m_outputCount;

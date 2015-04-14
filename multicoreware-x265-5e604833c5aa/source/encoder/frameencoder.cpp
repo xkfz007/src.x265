@@ -36,6 +36,9 @@
 #include "common.h"
 #include "slicetype.h"
 #include "nal.h"
+#if OUTPUT_FRAME_MB_BITS
+FILE *output_fm_fp;
+#endif
 
 namespace x265 {
 void weightAnalyse(Slice& slice, Frame& frame, x265_param& param);
@@ -202,6 +205,9 @@ bool FrameEncoder::startCompressFrame(Frame* curFrame)
 
 void FrameEncoder::threadMain()
 {
+#if OUTPUT_FRAME_MB_BITS
+    output_fm_fp=fopen(GET_FILENAME(OUTPUT_FRAME_MB_BITS),"w");
+#endif
     // worker thread routine for FrameEncoder
     do
     {
@@ -213,6 +219,9 @@ void FrameEncoder::threadMain()
         }
     }
     while (m_threadActive);
+#if OUTPUT_FRAME_MB_BITS
+    fclose(output_fm_fp);
+#endif
 }
 
 void FrameEncoder::compressFrame()
@@ -220,6 +229,9 @@ void FrameEncoder::compressFrame()
     PPAScopeEvent(FrameEncoder_compressFrame);
     int64_t startCompressTime = x265_mdate();
     Slice* slice = m_frame->m_encData->m_slice;
+#if OUTPUT_FRAME_MB_BITS
+    fprintf(output_fm_fp,POC_FORMAT, slice->m_poc);
+#endif
 
     /* Emit access unit delimiter unless this is the first frame and the user is
      * not repeating headers (since AUD is supposed to be the first NAL in the access
@@ -256,6 +268,13 @@ void FrameEncoder::compressFrame()
         }
     }
 
+#if FIX_COST_BUG
+    if(m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0)
+      for(int i=0;i<m_frame->m_encData->m_slice->m_sps->numCUsInFrame;i++){
+        calcCTUCost(i);
+      }
+
+#endif
     /* Get the QP for this frame from rate control. This call may block until
      * frames ahead of it in encode order have called rateControlEnd() */
     int qp = m_top->m_rateControl->rateControlStart(m_frame, &m_rce, m_top);
@@ -451,6 +470,9 @@ void FrameEncoder::compressFrame()
         }
     }
     m_accessUnitBits = bytes << 3;
+#if OUTPUT_FRAME_MB_BITS
+    fprintf(output_fm_fp,FRM_FORMAT,m_accessUnitBits);
+#endif
 
     m_elapsedCompressTime = (double)(x265_mdate() - startCompressTime) / 1000000;
     /* rateControlEnd may also block for earlier frames to call rateControlUpdateStats */
@@ -738,6 +760,14 @@ void FrameEncoder::processRowEncoder(int row, ThreadLocalData& tld)
         }
         else
             curEncData.m_cuStat[cuAddr].baseQp = curEncData.m_avgQpRc;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "CTU=(%d,%d) diagQP="FLOAT_FORMAT" baseQP="FLOAT_FORMAT" m_avgQpRC="FLOAT_FORMAT"\n"
+      ,col,row,curEncData.m_rowStat[row].diagQp,curEncData.m_cuStat[cuAddr].baseQp,curEncData.m_avgQpRc );
+    fclose(fp);
+  }
+#endif
 
         if (m_param->rc.aqMode || bIsVbv)
         {
@@ -797,6 +827,9 @@ void FrameEncoder::processRowEncoder(int row, ThreadLocalData& tld)
 
         curEncData.m_cuStat[cuAddr].totalBits = best.totalBits;
         x265_emms();
+#if OUTPUT_FRAME_MB_BITS
+        fprintf(output_fm_fp,MB_FORMAT,best.totalBits);
+#endif
 
         if (bIsVbv)
         {
@@ -806,17 +839,31 @@ void FrameEncoder::processRowEncoder(int row, ThreadLocalData& tld)
             curEncData.m_rowStat[row].encodedBits   += curEncData.m_cuStat[cuAddr].totalBits;
             curEncData.m_rowStat[row].sumQpRc       += curEncData.m_cuStat[cuAddr].baseQp;
             curEncData.m_rowStat[row].numEncodedCUs = cuAddr;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "m_rowDiagSatd=%d(%d) m_rowDiagIntraSatd=%d(%d) m_rowEncodedBits=%d(%d) m_numEncodedCusPerRow=%d(%d) baseQp="FLOAT_FORMAT"\n"
+      ,curEncData.m_rowStat[row].diagSatd,curEncData.m_cuStat[cuAddr].vbvCost
+    ,curEncData.m_rowStat[row].diagIntraSatd,curEncData.m_cuStat[cuAddr].intraVbvCost
+      ,curEncData.m_rowStat[row].encodedBits,curEncData.m_cuStat[cuAddr].totalBits
+      ,curEncData.m_rowStat[row].numEncodedCUs,cuAddr
+      ,curEncData.m_cuStat[cuAddr].baseQp
+      );
+    fclose(fp);
+  }
+#endif
 
             // If current block is at row diagonal checkpoint, call vbv ratecontrol.
 
             if (row == col && row)
             {
                 double qpBase = curEncData.m_cuStat[cuAddr].baseQp;
-                int reEncode = m_top->m_rateControl->rowDiagonalVbvRateControl(m_frame, row, &m_rce, qpBase);
+                int reEncode = m_top->m_rateControl->rowDiagonalVbvRateControl(m_frame, row, col, &m_rce, qpBase);
                 qpBase = Clip3((double)QP_MIN, (double)QP_MAX_MAX, qpBase);
                 curEncData.m_rowStat[row].diagQp = qpBase;
                 curEncData.m_rowStat[row].diagQpScale =  x265_qp2qScale(qpBase);
 
+#if REENCODE_CTU
                 if (reEncode < 0)
                 {
                     x265_log(m_param, X265_LOG_DEBUG, "POC %d row %d - encode restart required for VBV, to %.2f from %.2f\n",
@@ -872,6 +919,7 @@ void FrameEncoder::processRowEncoder(int row, ThreadLocalData& tld)
 
                     m_bAllRowsStop = false;
                 }
+#endif
             }
         }
 
@@ -1082,12 +1130,14 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
 
     FrameData& curEncData = *m_frame->m_encData;
     /* clear cuCostsForVbv from when vbv row reset was triggered */
+#if !FIX_COST_BUG
     bool bIsVbv = m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0;
     if (bIsVbv)
     {
         curEncData.m_cuStat[ctuAddr].vbvCost = 0;
         curEncData.m_cuStat[ctuAddr].intraVbvCost = 0;
     }
+#endif
 
     /* Derive qpOffet for each CU by averaging offsets for all 16x16 blocks in the cu. */
     double qp_offset = 0;
@@ -1109,11 +1159,13 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
             idx = block_x + w + (block_y * maxBlockCols);
             if (m_param->rc.aqMode)
                 qp_offset += qpoffs[idx];
+#if !FIX_COST_BUG
             if (bIsVbv)
             {
                 curEncData.m_cuStat[ctuAddr].vbvCost += m_frame->m_lowres.lowresCostForRc[idx] & LOWRES_COST_MASK;
                 curEncData.m_cuStat[ctuAddr].intraVbvCost += m_frame->m_lowres.intraCost[idx];
             }
+#endif
             cnt++;
         }
     }
@@ -1123,6 +1175,45 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
 
     return Clip3(QP_MIN, QP_MAX_MAX, (int)(qp + 0.5));
 }
+#if FIX_COST_BUG
+void FrameEncoder::calcCTUCost(uint32_t ctuAddr)
+{
+    x265_emms();
+
+    FrameData& curEncData = *m_frame->m_encData;
+    /* clear cuCostsForVbv from when vbv row reset was triggered */
+    //bool bIsVbv = m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0;
+    //if (bIsVbv)
+    {
+        curEncData.m_cuStat[ctuAddr].vbvCost = 0;
+        curEncData.m_cuStat[ctuAddr].intraVbvCost = 0;
+    }
+
+    /* Derive qpOffet for each CU by averaging offsets for all 16x16 blocks in the cu. */
+    uint32_t maxBlockCols = (m_frame->m_origPicYuv->m_picWidth + (16 - 1)) / 16;
+    uint32_t maxBlockRows = (m_frame->m_origPicYuv->m_picHeight + (16 - 1)) / 16;
+    uint32_t noOfBlocks = g_maxCUSize / 16;
+    uint32_t block_y = (ctuAddr / curEncData.m_slice->m_sps->numCuInWidth) * noOfBlocks;
+    uint32_t block_x = (ctuAddr * noOfBlocks) - block_y * curEncData.m_slice->m_sps->numCuInWidth;
+
+    /* Use cuTree offsets if cuTree enabled and frame is referenced, else use AQ offsets */
+    uint32_t idx = 0;
+    for (uint32_t h = 0; h < noOfBlocks && block_y < maxBlockRows; h++, block_y++)
+    {
+        for (uint32_t w = 0; w < noOfBlocks && (block_x + w) < maxBlockCols; w++)
+        {
+            idx = block_x + w + (block_y * maxBlockCols);
+            //if (bIsVbv)
+            {
+                curEncData.m_cuStat[ctuAddr].vbvCost += m_frame->m_lowres.lowresCostForRc[idx] & LOWRES_COST_MASK;
+                curEncData.m_cuStat[ctuAddr].intraVbvCost += m_frame->m_lowres.intraCost[idx];
+            }
+        }
+    }
+
+}
+#endif
+
 
 Frame *FrameEncoder::getEncodedPicture(NALList& output)
 {

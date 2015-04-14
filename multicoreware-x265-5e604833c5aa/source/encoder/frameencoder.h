@@ -183,6 +183,7 @@ public:
     int64_t                  m_totalTime;
     int                      m_frameEncoderID;
 
+    void calcCTUCost(uint32_t cuAddr);
 protected:
 
     bool initializeGeoms(const FrameData& encData);

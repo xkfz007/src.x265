@@ -78,6 +78,9 @@ bool Lowres::create(PicYuv *origPic, int _bframes, bool bAQEnabled)
             CHECKED_MALLOC(lowresCosts[i][j], uint16_t, cuCount);
         }
     }
+#if FIX_INTRACOST_BUG
+    intra_cost=lowresCosts[0][0];
+#endif
 
     for (int i = 0; i < bframes + 1; i++)
     {
@@ -153,11 +156,43 @@ void Lowres::init(PicYuv *origPic, int poc, int type)
 
     for (int i = 0; i < bframes + 2; i++)
         intraMbs[i] = 0;
-
+#if 1    
+    memset(plannedType, 0, sizeof(plannedType));
+    memset(plannedSatd, 0, sizeof(plannedSatd));
+#endif
     /* downscale and generate 4 hpel planes for lookahead */
     primitives.frame_init_lowres_core(origPic->m_picOrg[0],
                                       lowresPlane[0], lowresPlane[1], lowresPlane[2], lowresPlane[3],
                                       origPic->m_stride, lumaStride, width, lines);
+#define PRINT_OUT_LOWRES 0
+#if PRINT_OUT_LOWRES
+  {
+    FILE* pf = fopen("lowres_x265.txt", "a");
+    pixel* src_tmp = origPic->m_picOrg[0];
+    fprintf(pf, "POC=%d ORG:\n",poc);
+    for(int j = 0; j < origPic->m_picHeight + 1; j++) {
+      for(int i = 0; i < origPic->m_picWidth + 1; i++) {
+        fprintf(pf, "%4d", src_tmp[i]);
+      }
+      fprintf(pf, "\n");
+      src_tmp += origPic->m_stride;
+    }
+    fprintf(pf, "Interpolation:\n");
+    pixel* dst[4] = {lowresPlane[0], lowresPlane[1], lowresPlane[2], lowresPlane[3]};
+    for(int j = 0; j < lines; j++) {
+      for(int k = 0; k < 4; k++) {
+        for(int i = 0; i < width; i++) {
+          fprintf(pf, "%4d", dst[k][i]);
+        }
+        fprintf(pf, "    ");
+        dst[k] += lumaStride;
+      }
+      fprintf(pf, "\n");
+    }
+    fclose(pf);
+    fflush(pf);
+  }
+#endif
 
     /* extend hpel planes for motion search */
     extendPicBorder(lowresPlane[0], lumaStride, width, lines, origPic->m_lumaMarginX, origPic->m_lumaMarginY);
@@ -165,4 +200,28 @@ void Lowres::init(PicYuv *origPic, int poc, int type)
     extendPicBorder(lowresPlane[2], lumaStride, width, lines, origPic->m_lumaMarginX, origPic->m_lumaMarginY);
     extendPicBorder(lowresPlane[3], lumaStride, width, lines, origPic->m_lumaMarginX, origPic->m_lumaMarginY);
     fpelPlane = lowresPlane[0];
+
+#if PRINT_OUT_LOWRES
+  {
+    FILE* pf = fopen("lowres_x265.txt", "a");
+    pixel* dst[4] = {lowresPlane[0] - lumaStride* 8 - 8,
+                     lowresPlane[1] - lumaStride* 8 - 8,
+                     lowresPlane[2] - lumaStride* 8 - 8,
+                     lowresPlane[3] - lumaStride* 8 - 8,
+                    };
+    fprintf(pf, "ExPAND:\n");
+    for(int j = 0; j < lines + 2 * 8; j++) {
+      for(int k = 0; k < 4; k++) {
+        for(int i = 0; i < width + 2 * 8; i++) {
+          fprintf(pf, "%4d", dst[k][i]);
+        }
+        fprintf(pf, "    ");
+        dst[k] += lumaStride;
+      }
+      fprintf(pf, "\n");
+    }
+    fclose(pf);
+    fflush(pf);
+  }
+#endif
 }

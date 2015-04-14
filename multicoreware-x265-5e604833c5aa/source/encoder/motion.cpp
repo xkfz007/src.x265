@@ -557,6 +557,15 @@ int MotionEstimate::motionEstimate(ReferencePlanes *ref,
     else
         bprecost = subpelCompare(ref, pmv, sad);
 
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tmvp=Q(%d,%d) cost=%d\n",pmv.x,pmv.y,bprecost);
+      fclose(pf);
+    }
+#endif
+
     /* re-measure full pel rounded MVP with SAD as search start point */
     MV bmv = pmv.roundToFPel();
     int bcost = bprecost;
@@ -564,6 +573,14 @@ int MotionEstimate::motionEstimate(ReferencePlanes *ref,
     {
         bcost = sad(fenc, FENC_STRIDE, fref + bmv.x + bmv.y * stride, stride) + mvcost(bmv << 2);
     }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tbmv=F(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
 
     // measure SAD cost at MV(0) if MVP is not zero
     if (pmv.notZero())
@@ -575,11 +592,27 @@ int MotionEstimate::motionEstimate(ReferencePlanes *ref,
             bmv = 0;
         }
     }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tbmv=F(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
 
     // measure SAD cost at each QPEL motion vector candidate
     for (int i = 0; i < numCandidates; i++)
     {
         MV m = mvc[i].clipped(qmvmin, qmvmax);
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+  {
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+    fprintf(pf,"\tmvc:%d(%d,%d) mxy=(%d,%d) pmxy=(%d,%d)\n",i,mvc[i].x,mvc[i].y,m.x,m.y,pmv.x,pmv.y);
+    fclose(pf);
+  }
+#endif
         if (m.notZero() && m != pmv && m != bestpre) // check already measured
         {
             int cost;
@@ -593,6 +626,14 @@ int MotionEstimate::motionEstimate(ReferencePlanes *ref,
                 bprecost = cost;
                 bestpre = m;
             }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+  {
+    FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+    fprintf(pf,"\tmvc:%d(%d,%d) bestpre=(%d,%d) bprecost=%d cost=%d\n",i,m.x,m.y,bestpre.x,bestpre.y,bprecost,cost);
+    fclose(pf);
+  }
+#endif
         }
     }
 
@@ -606,9 +647,25 @@ int MotionEstimate::motionEstimate(ReferencePlanes *ref,
         /* diamond search, radius 1 */
         bcost <<= 4;
         int i = merange;
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+        if(ref->isLowres)
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf,"\tdia:range=%d bmxy=(%d,%d) mv_min=(%d,%d) mv_max=(%d,%d)\n",merange,bmv.x,bmv.y,mvmin.x,mvmax.x,mvmin.y,mvmax.y);
+        fclose(pf);
+      }
+#endif
         do
         {
             COST_MV_X4_DIR(0, -1, 0, 1, -1, 0, 1, 0, costs);
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+        if(ref->isLowres)
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf,"\tdia:i=%d cost0=%d cost1=%d cost2=%d cost3=%d\n",i,costs[0],costs[1],costs[2],costs[3]);
+        fclose(pf);
+      }
+#endif
             COPY1_IF_LT(bcost, (costs[0] << 4) + 1);
             COPY1_IF_LT(bcost, (costs[1] << 4) + 3);
             COPY1_IF_LT(bcost, (costs[2] << 4) + 4);
@@ -618,9 +675,25 @@ int MotionEstimate::motionEstimate(ReferencePlanes *ref,
             bmv.x -= (bcost << 28) >> 30;
             bmv.y -= (bcost << 30) >> 30;
             bcost &= ~15;
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tdia:i=%d mv=F(%d,%d) cost=%d\n",i,bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
         }
         while (--i && bmv.checkRange(mvmin, mvmax));
         bcost >>= 4;
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tdia:mv=F(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
         break;
     }
 
@@ -655,6 +728,14 @@ me_hex2:
         COPY1_IF_LT(bcost, (costs[0] << 3) + 5);
         COPY1_IF_LT(bcost, (costs[1] << 3) + 6);
         COPY1_IF_LT(bcost, (costs[2] << 3) + 7);
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\thex:mv=F(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
 
         if (bcost & 7)
         {
@@ -682,6 +763,14 @@ me_hex2:
         bcost >>= 3;
 #endif // if 0
 
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\thex:mv=F(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
         /* square refine */
         int dir = 0;
         COST_MV_X4_DIR(0, -1,  0, 1, -1, 0, 1, 0, costs);
@@ -695,6 +784,14 @@ me_hex2:
         COPY2_IF_LT(bcost, costs[2], dir, 7);
         COPY2_IF_LT(bcost, costs[3], dir, 8);
         bmv += square1[dir];
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\thex:mv=F(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
         break;
     }
 
@@ -1035,6 +1132,15 @@ me_hex2:
         break;
     }
 
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tfullp:mv=Q(%d,%d) bcost=%d bprecost=%d\n",bmv.x,bmv.y,bcost,bprecost);
+      fclose(pf);
+    }
+#endif
+
     if (bprecost < bcost)
     {
         bmv = bestpre;
@@ -1042,6 +1148,14 @@ me_hex2:
     }
     else
         bmv = bmv.toQPel(); // promote search bmv to qpel
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tfullp:mv=Q(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
 
     SubpelWorkload& wl = workload[this->subpelRefine];
 
@@ -1060,9 +1174,25 @@ me_hex2:
             cost = ref->lowresQPelCost(fenc, blockOffset, qmv, sad) + mvcost(qmv);
             COPY2_IF_LT(bcost, cost, bdir, i);
         }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tHalfp:mv=H(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
 
         bmv += square1[bdir] * 2;
         bcost = ref->lowresQPelCost(fenc, blockOffset, bmv, satd) + mvcost(bmv);
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tHalfp:mv=H(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
 
         bdir = 0;
         for (int i = 1; i <= wl.qpel_dirs; i++)
@@ -1073,6 +1203,14 @@ me_hex2:
         }
 
         bmv += square1[bdir];
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tQuarterp:mv=Q(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
     }
     else
     {
@@ -1123,6 +1261,14 @@ me_hex2:
         }
     }
 
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_ME_COST
+  if(ref->isLowres)
+    {
+      FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+      fprintf(pf,"\tfinal:mv=Q(%d,%d) cost=%d\n",bmv.x,bmv.y,bcost);
+      fclose(pf);
+    }
+#endif
     x265_emms();
     outQMv = bmv;
     return bcost;

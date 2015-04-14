@@ -188,8 +188,8 @@ void x265_param_default(x265_param *param)
     param->rc.bitrate = 0;
     param->rc.rateTolerance = 1.0;
     param->rc.qCompress = 0.6;
-    param->rc.ipFactor = 1.4f;
-    param->rc.pbFactor = 1.3f;
+    param->rc.ipFactor = 1.4;
+    param->rc.pbFactor = 1.3;
     param->rc.qpStep = 4;
     param->rc.rateControlMode = X265_RC_CRF;
     param->rc.qp = 32;

@@ -28,6 +28,57 @@
 #include "common.h"
 #include "mv.h"
 
+//frame cost calculation related macros
+#ifdef _DEBUG
+#define GET_FILENAME(x) #x"_dbg.txt"
+#elif NDEBUG
+#define GET_FILENAME(x) #x"_rls.txt"
+#endif
+#define DEBUG_FRAME_COST_OUTPUT 0
+#define DEBUG_PIXEL_INFO 0
+#define DEBUG_CU_INFO 0
+#define DEBUG_CU_COST_OUTPUT 0
+#define DEBUG_INTRA_PREDICT 0
+#define DEBUG_ME_COST 0
+#define DEBUG_COST_EST 0
+
+//rate control output related macros
+#define OUTPUT_FRAME_MB_BITS 1
+#define POC_FORMAT "%5d"
+#define MB_FORMAT "%7d"
+#define FRM_FORMAT "%10lld\n"
+#define FLOAT_FORMAT "%.19f"
+
+#define DEBUG_RC_WHOLE_PROCESS_ABR 1
+#define DEBUG_RC_WHOLE_PROCESS_VBV 1
+
+#define DEBUG_MBTREE_PROCESS 1
+#define DEBUG_AQ_PROCESS 1
+#define DEBUG_VBV_LOOKAHEAD 1
+
+#define DEBUG_FRMCOST_RECALC 0
+#define DEBUG_FRMCOST_RECALC_REAL 0
+
+#define DEBUG_CRA 0
+#define DEBUG_B_FRAME_ADAPTIVE 0
+
+#define AMORTIZE_IFRAME 0
+#define ABR_RESET 0
+
+#define DEBUG_FIXQP_FRAME_COST 0
+#define DEBUG_SCENECUT 0
+
+#define DEBUG_NALUTYPE 0
+
+#define USE_ALL_INTRA 1
+
+#define REENCODE_CTU 0
+
+#define FIX_COST_BUG 1
+#define FIX_INTRACOST_BUG 1
+#define FIX_AQ_QP_BUG 1
+#define FIX_COSTEST_BUG 1
+
 namespace x265 {
 // private namespace
 
@@ -121,6 +172,9 @@ struct Lowres : public ReferencePlanes
     uint16_t(*lowresCosts[X265_BFRAME_MAX + 2][X265_BFRAME_MAX + 2]);
     int32_t*  lowresMvCosts[2][X265_BFRAME_MAX + 1];
     MV*       lowresMvs[2][X265_BFRAME_MAX + 1];
+#if FIX_INTRACOST_BUG
+    uint16_t* intra_cost;
+#endif
 
     /* used for vbvLookahead */
     int       plannedType[X265_LOOKAHEAD_MAX + 1];

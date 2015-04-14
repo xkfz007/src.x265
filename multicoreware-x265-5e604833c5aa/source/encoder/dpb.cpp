@@ -97,6 +97,24 @@ void DPB::prepareEncode(Frame *newFrame)
     bool bIsKeyFrame = newFrame->m_lowres.bKeyframe;
 
     slice->m_nalUnitType = getNalUnitType(pocCurr, bIsKeyFrame);
+#if DEBUG_NALUTYPE
+    char* x265_type2string[] = {
+      "265_TYPE_AUTO",
+      "265_TYPE_IDR",
+      "265_TYPE_I",
+      "265_TYPE_P",
+      "265_TYPE_BREF",
+      "265_TYPE_B",
+      "265_TYPE_KEYFRAME",
+    };
+    fprintf(stdout,"NaluType:poc=%d(%d) type=%s lastIDR=%d\n",slice->m_poc,newFrame->m_lowres.frameNum,x265_type2string[type],
+      m_lastIDR);
+    fflush(stdout);
+    //if(slice->m_nalUnitType==NAL_UNIT_CODED_SLICE_RADL_R){
+    //  fprintf(stdout,"poc=%d(%d) type=%s\n",slice->m_poc,newFrame->m_lowres.frameNum,x265_type2string[type]);
+    //  fflush(stdout);
+    //}
+#endif
     if (slice->m_nalUnitType == NAL_UNIT_CODED_SLICE_IDR_W_RADL)
         m_lastIDR = pocCurr;
     slice->m_lastIDR = m_lastIDR;
@@ -120,6 +138,34 @@ void DPB::prepareEncode(Frame *newFrame)
             break;
         }
     }
+#if DEBUG_NALUTYPE
+    char* nalutype2string[] = {
+      "NAL_TRAIL_N",
+      "NAL_TRAIL_R",
+      "NAL_TSA_N",
+      "NAL_TSA_R",
+      "NAL_STSA_N",
+      "NAL_STSA_R",
+      "NAL_RADL_N",
+      "NAL_RADL_R",
+      "NAL_RASL_N",
+      "NAL_RASL_R",
+      "NAL_RSV_VCL_N10",
+      "NAL_RSV_VCL_N12",
+      "NAL_RSV_VCL_N14",
+      "NAL_RSV_VCL_R11",
+      "NAL_RSV_VCL_R13",
+      "NAL_RSV_VCL_R15",
+      "NAL_BLA_W_LP",
+      "NAL_BLA_W_RADL",
+      "NAL_BLA_N_LP",
+      "NAL_IDR_W_RADL",
+      "NAL_IDR_N_LP",
+      "NAL_CRA_NUT",
+    };
+    fprintf(stdout,"NaluType:\tnalu=%s\n",nalutype2string[slice->m_nalUnitType]);
+    fflush(stdout);
+#endif
 
     /* m_bHasReferences starts out as true for non-B pictures, and is set to false
      * once no more pictures reference it */
@@ -178,6 +224,14 @@ void DPB::computeRPS(int curPoc, bool isRAP, RPS * rps, unsigned int maxDecPicBu
 
     Frame* iterPic = m_picList.first();
 
+#if DEBUG_CRA
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_CRA), "a");
+        fprintf(fp, "curPoc=%lld isRAP=%d maxDecPicBuffer=%d\n",
+          curPoc,isRAP,maxDecPicBuffer);
+        fclose(fp);
+      }
+#endif
     while (iterPic && (poci < maxDecPicBuffer - 1))
     {
         if ((iterPic->m_poc != curPoc) && iterPic->m_encData->m_bHasReferences)
@@ -186,6 +240,14 @@ void DPB::computeRPS(int curPoc, bool isRAP, RPS * rps, unsigned int maxDecPicBu
             rps->deltaPOC[poci] = rps->poc[poci] - curPoc;
             (rps->deltaPOC[poci] < 0) ? numNeg++ : numPos++;
             rps->bUsed[poci] = !isRAP;
+#if DEBUG_CRA
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_CRA), "a");
+        fprintf(fp, "poc=%lld refidc=%d pocd_refpic=%d b_used_by_currpic=%d poci=%d numNeg=%d numPos=%d\n",
+          iterPic->m_poc,rps->poc[poci],rps->deltaPOC[poci],rps->bUsed[poci],poci,numNeg,numPos);
+        fclose(fp);
+      }
+#endif
             poci++;
         }
         iterPic = iterPic->m_next;
@@ -194,6 +256,14 @@ void DPB::computeRPS(int curPoc, bool isRAP, RPS * rps, unsigned int maxDecPicBu
     rps->numberOfPictures = poci;
     rps->numberOfPositivePictures = numPos;
     rps->numberOfNegativePictures = numNeg;
+#if DEBUG_CRA
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_CRA), "a");
+        fprintf(fp, "curPoc=%lld poci=%d numPos=%d numNeg=%d\n",
+          curPoc,poci,numPos,numNeg);
+        fclose(fp);
+      }
+#endif
 
     rps->sortDeltaPOC();
 }

@@ -227,7 +227,7 @@ public:
     void calcAdaptiveQuantFrame(Frame *curFrame);
     void rateControlUpdateStats(RateControlEntry* rce);
     int rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry* rce, FrameStats* stats);
-    int rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateControlEntry* rce, double& qpVbv);
+    int rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row,uint32_t col, RateControlEntry* rce, double& qpVbv);
     void hrdFullness(SEIBufferingPeriod* sei);
     bool init(const SPS* sps);
     void initHRD(SPS* sps);
@@ -248,13 +248,13 @@ protected:
 
     double getQScale(RateControlEntry *rce, double rateFactor);
     double rateEstimateQscale(Frame* pic, RateControlEntry *rce); // main logic for calculating QP based on ABR
-    void accumPQpUpdate();
+    void accumPQpUpdate(double);
     uint32_t acEnergyCu(Frame* pic, uint32_t block_x, uint32_t block_y);
 
     void updateVbv(int64_t bits, RateControlEntry* rce);
     void updatePredictor(Predictor *p, double q, double var, double bits);
     double clipQscale(Frame* pic, RateControlEntry* rce, double q);
-    void updateVbvPlan(Encoder* enc);
+    void updateVbvPlan(Encoder* enc, RateControlEntry* rce);
     double predictSize(Predictor *p, double q, double var);
     void checkAndResetABR(RateControlEntry* rce, bool isFrameDone);
     double predictRowsSizeSum(Frame* pic, RateControlEntry* rce, double qpm, int32_t& encodedBits);

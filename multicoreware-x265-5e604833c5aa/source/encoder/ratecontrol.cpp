@@ -38,6 +38,11 @@
 #define CPB_SHIFT 4
 
 using namespace x265;
+//#define DEBUG_RC_ABR 0
+//#define DEBUG_RC_STARTENDORDER 0
+//#define DEBUG_PRINT_BUFFER 0
+//#define PRINT_RATECONTROL_MB 0
+//#define DEBUG_CTU_COST_OF_FRAME 0
 
 /* Amortize the partial cost of I frames over the next N frames */
 const double RateControl::s_amortizeFraction = 0.85;
@@ -205,7 +210,7 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
     /* Calculate Qp offset for each 16x16 block in the frame */
     int block_xy = 0;
     int block_x = 0, block_y = 0;
-    double strength = 0.f;
+    double strength = 0.0;
     if (m_param->rc.aqMode == X265_AQ_NONE || m_param->rc.aqStrength == 0)
     {
         /* Need to init it anyways for CU tree */
@@ -252,10 +257,26 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
             avg_adj /= m_ncu;
             avg_adj_pow2 /= m_ncu;
             strength = m_param->rc.aqStrength * avg_adj / bit_depth_correction;
-            avg_adj = avg_adj - 0.5f * (avg_adj_pow2 - (11.f * bit_depth_correction)) / avg_adj;
+            avg_adj = avg_adj - 0.50 * (avg_adj_pow2 - (11.0 * bit_depth_correction)) / avg_adj;
+#if DEBUG_AQ_PROCESS
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_AQ_PROCESS), "a");
+        fprintf(fp, "aq_strength="FLOAT_FORMAT" strength="FLOAT_FORMAT"avg_adj="FLOAT_FORMAT"\n",
+                m_param->rc.aqStrength,strength,avg_adj );
+        fclose(fp);
+      }
+#endif
         }
         else
-            strength = m_param->rc.aqStrength * 1.0397f;
+            strength = m_param->rc.aqStrength * 1.03970;
+#if DEBUG_AQ_PROCESS
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_AQ_PROCESS), "a");
+        fprintf(fp, "aq_strength="FLOAT_FORMAT" strength="FLOAT_FORMAT"\n",
+                m_param->rc.aqStrength,strength );
+        fclose(fp);
+      }
+#endif
 
         block_xy = 0;
         for (block_y = 0; block_y < maxRow; block_y += 16)
@@ -270,11 +291,19 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
                 else
                 {
                     uint32_t energy = acEnergyCu(curFrame, block_x, block_y);
-                    qp_adj = strength * (X265_LOG2(X265_MAX(energy, 1)) - (14.427f + 2 * (X265_DEPTH - 8)));
+                    qp_adj = strength * (X265_LOG2(X265_MAX(energy, 1)) - (14.427 + 2 * (X265_DEPTH - 8)));
                 }
                 curFrame->m_lowres.qpAqOffset[block_xy] = qp_adj;
                 curFrame->m_lowres.qpCuTreeOffset[block_xy] = qp_adj;
                 curFrame->m_lowres.invQscaleFactor[block_xy] = x265_exp2fix8(qp_adj);
+#if DEBUG_AQ_PROCESS
+      {
+        FILE* fp = fopen(GET_FILENAME(DEBUG_AQ_PROCESS), "a");
+        fprintf(fp, "i_mb_xy=%d inv_qfactor=%d f_qp_offset="FLOAT_FORMAT" f_qp_offset_aq="FLOAT_FORMAT"\n",
+                block_xy,curFrame->m_lowres.invQscaleFactor[block_xy],curFrame->m_lowres.qpCuTreeOffset[block_xy],curFrame->m_lowres.qpAqOffset[block_xy] );
+        fclose(fp);
+      }
+#endif
                 block_xy++;
             }
         }
@@ -306,10 +335,75 @@ RateControl::RateControl(x265_param *p)
     int lowresCuHeight = ((m_param->sourceHeight / 2) + X265_LOWRES_CU_SIZE - 1) >> X265_LOWRES_CU_BITS;
     m_ncu = lowresCuWidth * lowresCuHeight;
 
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+    {
+      static int kk=0;
+      FILE* fp;
+      if(kk==0){
+        fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"w");
+        kk=1;
+        fclose(fp);
+      }
+    }
+#endif
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+    {
+      static int kk=0;
+      FILE* fp;
+      if(kk==0){
+        fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"w");
+        kk=1;
+        fclose(fp);
+      }
+    }
+#endif
+#if DEBUG_CRA
+  {
+    static int kk = 0;
+    FILE* fp;
+    if(kk == 0) {
+      fp = fopen(GET_FILENAME(DEBUG_CRA), "w");
+      kk = 1;
+      fclose(fp);
+    }
+  }
+#endif
+#if DEBUG_MBTREE_PROCESS
+  {
+    static int kk = 0;
+    if(kk == 0) {
+    FILE* fp,*fp2;
+      fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "w");
+      fp2 = fopen(GET_FILENAME(DEBUG_AQ_PROCESS), "w");
+      kk = 1;
+      fclose(fp);
+      fclose(fp2);
+    }
+  }
+#endif
+
     if (m_param->rc.cuTree)
         m_qCompress = 1;
     else
         m_qCompress = m_param->rc.qCompress;
+#if DEBUG_MBTREE_PROCESS
+  {
+    FILE* fp= fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+    fprintf(fp,"qcompress=%.2f\n",m_qCompress);
+    fclose(fp);
+  }
+#endif
+#if DEBUG_FRMCOST_RECALC
+  {
+    static int kk = 0;
+    FILE* fp;
+    if(kk == 0) {
+      fp = fopen(GET_FILENAME(DEBUG_FRMCOST_RECALC), "w");
+      kk = 1;
+      fclose(fp);
+    }
+  }
+#endif
 
     // validate for param->rc, maybe it is need to add a function like x265_parameters_valiate()
     m_residualFrames = 0;
@@ -353,8 +447,10 @@ RateControl::RateControl(x265_param *p)
     m_shortTermCplxSum = 0;
     m_shortTermCplxCount = 0;
     m_lastNonBPictType = I_SLICE;
+#if ABR_RESET
     m_isAbrReset = false;
     m_lastAbrResetPoc = -1;
+#endif
     m_statFileOut = NULL;
     m_cutreeStatFileOut = m_cutreeStatFileIn = NULL;
     m_rce2Pass = NULL;
@@ -411,6 +507,14 @@ RateControl::RateControl(x265_param *p)
     m_ipOffset = 6.0 * X265_LOG2(m_param->rc.ipFactor);
     m_pbOffset = 6.0 * X265_LOG2(m_param->rc.pbFactor);
 
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+    {
+      FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+      fprintf(fp,"f_ip_factor="FLOAT_FORMAT" ip_offset="FLOAT_FORMAT" f_pb_factor="FLOAT_FORMAT" pb_offset="FLOAT_FORMAT"\n",
+        m_param->rc.ipFactor,m_ipOffset,m_param->rc.pbFactor,m_pbOffset);
+      fclose(fp);
+    }
+#endif
     /* Adjust the first frame in order to stabilize the quality level compared to the rest */
 #define ABR_INIT_QP_MIN (24)
 #define ABR_INIT_QP_MAX (40)
@@ -434,6 +538,14 @@ RateControl::RateControl(x265_param *p)
 
     /* qstep - value set as encoder specific */
     m_lstep = pow(2, m_param->rc.qpStep / 6.0);
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+    {
+      FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+      fprintf(fp,"i_qp_step=%d lstep="FLOAT_FORMAT" last_qscale=["FLOAT_FORMAT" "FLOAT_FORMAT" "FLOAT_FORMAT"]\n",
+        m_param->rc.qpStep,m_lstep,m_lastQScaleFor[0],m_lastQScaleFor[1],m_lastQScaleFor[2]);
+      fclose(fp);
+    }
+#endif
 
     for (int i = 0; i < 2; i++)
         m_cuTreeStats.qpBuffer[i] = NULL;
@@ -469,18 +581,29 @@ bool RateControl::init(const SPS *sps)
             m_param->rc.vbvBufferInit = Clip3(0.0, 1.0, m_param->rc.vbvBufferInit / m_param->rc.vbvBufferSize);
         m_param->rc.vbvBufferInit = Clip3(0.0, 1.0, X265_MAX(m_param->rc.vbvBufferInit, m_bufferRate / m_bufferSize));
         m_bufferFillFinal = m_bufferSize * m_param->rc.vbvBufferInit;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+    {
+      FILE* fp;
+      fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+      fprintf(fp,"m_bufferRate="FLOAT_FORMAT" m_vbvMaxRate="FLOAT_FORMAT" m_bufferSize="FLOAT_FORMAT" m_bufferFillFinal="FLOAT_FORMAT"\n",
+        m_bufferRate,m_vbvMaxRate,m_bufferSize,m_bufferFillFinal);
+      fclose(fp);
+    }
+#endif
     }
 
     m_totalBits = 0;
     m_framesDone = 0;
     m_residualCost = 0;
     m_partialResidualCost = 0;
+#if ABR_RESET
     for (int i = 0; i < s_slidingWindowFrames; i++)
     {
         m_satdCostWindow[i] = 0;
         m_encodedBitsWindow[i] = 0;
     }
     m_sliderPos = 0;
+#endif
 
     /* 720p videos seem to be a good cutoff for cplxrSum */
     double tuneCplxFactor = (m_param->rc.cuTree && m_ncu > 3600) ? 2.5 : 1;
@@ -491,6 +614,15 @@ bool RateControl::init(const SPS *sps)
     m_accumPNorm = .01;
     m_accumPQp = (m_param->rc.rateControlMode == X265_RC_CRF ? CRF_INIT_QP : ABR_INIT_QP_MIN) * m_accumPNorm;
 
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+    {
+      FILE* fp;
+      fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+      fprintf(fp,"cplxr_sum="FLOAT_FORMAT" wanted_bits_window="FLOAT_FORMAT" accum_p_qp="FLOAT_FORMAT" accum_p_norm="FLOAT_FORMAT"\n",
+        m_cplxrSum,m_wantedBitsWindow,m_accumPQp,m_accumPNorm);
+      fclose(fp);
+    }
+#endif
     /* Frame Predictors and Row predictors used in vbv */
     for (int i = 0; i < 5; i++)
     {
@@ -1083,6 +1215,7 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
     rce->bufferRate = m_bufferRate;
     rce->rowCplxrSum = 0.0;
     rce->rowTotalBits = 0;
+    double q;
     if (m_isVbv)
     {
         if (rce->rowPreds[0][0].count == 0)
@@ -1101,7 +1234,7 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
         rce->rowPred[0] = &rce->rowPreds[m_sliceType][0];
         rce->rowPred[1] = &rce->rowPreds[m_sliceType][1];
         m_predictedBits = m_totalBits;
-        updateVbvPlan(enc);
+        updateVbvPlan(enc,rce);
         rce->bufferFill = m_bufferFill;
 
         int mincr = enc->m_vps.ptl.minCrForLevel;
@@ -1124,6 +1257,22 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
                 rce->frameSizeMaximum = 8 * 1.5 * enc->m_vps.ptl.maxLumaSrForLevel * m_frameDuration / mincr;
             }
         }
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "mincr=%d frame_size_maximum=%.4f\n", mincr, rce->frameSizeMaximum);
+    fclose(fp);
+  }
+#endif
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    for(int i=0;i<m_param->lookaheadDepth;i++){
+      fprintf(fp, "poc=%d i=%d i_type=%d\n",curFrame->m_lowres.frameNum,i,curFrame->m_lowres.plannedType[i]);
+    }
+    fclose(fp);
+  }
+#endif
     }
     if (m_isAbr || m_2pass) // ABR,CRF
     {
@@ -1133,13 +1282,13 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
             /* Update rce for use in rate control VBV later */
             rce->lastSatd = m_currentSatd;
         }
-        double q = x265_qScale2qp(rateEstimateQscale(curFrame, rce));
+        q = x265_qScale2qp(rateEstimateQscale(curFrame, rce));
         q = Clip3((double)QP_MIN, (double)QP_MAX_MAX, q);
         m_qp = int(q + 0.5);
         rce->qpaRc = curEncData.m_avgQpRc = curEncData.m_avgQpAq = q;
         /* copy value of lastRceq into thread local rce struct *to be used in RateControlEnd() */
         rce->qRceq = m_lastRceq;
-        accumPQpUpdate();
+        accumPQpUpdate(q);
     }
     else // CQP
     {
@@ -1161,21 +1310,39 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
         m_qp = Clip3(QP_MIN, QP_MAX_MAX, m_qp);
         rce->qpaRc = curEncData.m_avgQpRc = curEncData.m_avgQpAq = m_qp;
     }
+
     // Do not increment m_startEndOrder here. Make rateControlEnd of previous thread
     // to wait until rateControlUpdateStats of this frame is called
     m_framesDone++;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"q="FLOAT_FORMAT" leadingNoBSatd=%d m_framesDone=%d\n",q,rce->leadingNoBSatd,m_framesDone);
+    fclose(fp);
+  }
+#endif
     return m_qp;
 }
 
-void RateControl::accumPQpUpdate()
+void RateControl::accumPQpUpdate(double q)
 {
     m_accumPQp   *= .95;
     m_accumPNorm *= .95;
     m_accumPNorm += 1;
     if (m_sliceType == I_SLICE)
-        m_accumPQp += m_qp + m_ipOffset;
+        //m_accumPQp += m_qp + m_ipOffset;
+        m_accumPQp += q + m_ipOffset;
     else
-        m_accumPQp += m_qp;
+        //m_accumPQp += m_qp;
+        m_accumPQp += q;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
+    fprintf(fp,"accum_p_qp="FLOAT_FORMAT" accum_p_norm="FLOAT_FORMAT" qp="FLOAT_FORMAT" ip_offset="FLOAT_FORMAT"\n",
+      m_accumPQp,m_accumPNorm,q,m_ipOffset);
+    fclose(fp);
+  }
+#endif
 }
 
 double RateControl::getDiffLimitedQScale(RateControlEntry *rce, double q)
@@ -1347,6 +1514,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
 {
     double q;
 
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"poc=%d current_satd=%d total_bits=%lld\n",rce->poc,m_currentSatd,m_totalBits);
+    fclose(fp);
+  }
+#endif
     if (m_2pass)
     {
         if (m_sliceType != rce->sliceType)
@@ -1355,6 +1529,7 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
                      g_sliceTypeToChar[m_sliceType], g_sliceTypeToChar[rce->sliceType]);
         }
     }
+#if ABR_RESET
     else
     {
         if (m_isAbr)
@@ -1372,8 +1547,16 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
             rce->movingAvgSum = slidingWindowCplxSum;
             m_satdCostWindow[m_sliderPos % s_slidingWindowFrames] = rce->lastSatd;
             m_sliderPos++;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"rce->movingAvgSum="FLOAT_FORMAT" rcc->m_sliderPos=%d\n",rce->movingAvgSum,m_sliderPos);
+    fclose(fp);
+  }
+#endif
         }
     }
+#endif
 
     if (m_sliceType == B_SLICE)
     {
@@ -1387,7 +1570,15 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
         bool i1 = nextRefSlice->m_sliceType == I_SLICE;
         int dt0 = abs(m_curSlice->m_poc - prevRefSlice->m_poc);
         int dt1 = abs(m_curSlice->m_poc - nextRefSlice->m_poc);
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"i0=%d i1=%d dt0=%d dt1=%d q0="FLOAT_FORMAT" q1="FLOAT_FORMAT"\n",i0,i1,dt0,dt1,q0,q1);
+    fclose(fp);
+  }
+#endif
 
+#if ABR_RESET
         // Skip taking a reference frame before the Scenecut if ABR has been reset.
         if (m_lastAbrResetPoc >= 0)
         {
@@ -1398,6 +1589,7 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
                 q0 = q1;
             }
         }
+#endif
         if (prevRefSlice->m_sliceType == B_SLICE && IS_REFERENCED(m_curSlice->m_refPicList[0][0]))
             q0 -= m_pbOffset / 2;
         if (nextRefSlice->m_sliceType == B_SLICE && IS_REFERENCED(m_curSlice->m_refPicList[1][0]))
@@ -1417,6 +1609,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
             q += m_pbOffset;
         rce->qpNoVbv = q;
         double qScale = x265_qp2qScale(q);
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"qp_novbv="FLOAT_FORMAT" q="FLOAT_FORMAT"\n",rce->qpNoVbv,qScale);
+    fclose(fp);
+  }
+#endif
 
         if (!m_2pass && m_isVbv)
         {
@@ -1426,6 +1625,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
                 m_lastQScaleFor[m_sliceType] = qScale;
             }
             rce->frameSizePlanned = predictSize(&m_predBfromP, qScale, (double)m_leadingNoBSatd);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "frame_size_planned="FLOAT_FORMAT"\n",rce->frameSizePlanned);
+    fclose(fp);
+  }
+#endif
         }
         else if (m_2pass && m_isVbv)
         {
@@ -1435,6 +1641,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
         if (m_isVbv)
             rce->frameSizePlanned = X265_MIN(rce->frameSizePlanned, rce->frameSizeMaximum);
         rce->frameSizeEstimated = rce->frameSizePlanned;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "frame_size_planned="FLOAT_FORMAT"\n",rce->frameSizeEstimated);
+    fclose(fp);
+  }
+#endif
         rce->newQScale = qScale;
         return qScale;
     }
@@ -1514,6 +1727,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
             m_shortTermCplxCount *= 0.5;
             m_shortTermCplxSum += m_currentSatd / (CLIP_DURATION(m_frameDuration) / BASE_FRAME_DURATION);
             m_shortTermCplxCount++;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"shortterm_cplxsum="FLOAT_FORMAT" short_term_cplxcount="FLOAT_FORMAT"\n",m_shortTermCplxSum,m_shortTermCplxCount);
+    fclose(fp);
+  }
+#endif
             /* coeffBits to be used in 2-pass */
             rce->coeffBits = (int)m_currentSatd;
             rce->blurredComplexity = m_shortTermCplxSum / m_shortTermCplxCount;
@@ -1526,10 +1746,18 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
             }
             else
             {
+#if ABR_RESET
                 if (!m_param->rc.bStatRead)
                     checkAndResetABR(rce, false);
+#endif
                 q = getQScale(rce, m_wantedBitsWindow / m_cplxrSum);
-
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"wanted_bits_window="FLOAT_FORMAT" cplxr_sum="FLOAT_FORMAT" q="FLOAT_FORMAT"\n",m_wantedBitsWindow,m_cplxrSum,q);
+    fclose(fp);
+  }
+#endif
                 /* ABR code can potentially be counterproductive in CBR, so just
                  * don't bother.  Don't run it if the frame complexity is zero
                  * either. */
@@ -1538,20 +1766,42 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
                     /* use framesDone instead of POC as poc count is not serial with bframes enabled */
                     double timeDone = (double)(m_framesDone - m_param->frameNumThreads + 1) * m_frameDuration;
                     wantedBits = timeDone * m_bitrate;
-                    if (wantedBits > 0 && m_totalBits > 0 && !m_partialResidualFrames)
+                    if (wantedBits > 0 && m_totalBits > 0 
+#if AMORTIZE_IFRAME
+                      && !m_partialResidualFrames
+#endif
+                      )
                     {
                         abrBuffer *= X265_MAX(1, sqrt(timeDone));
                         overflow = Clip3(.5, 2.0, 1.0 + (m_totalBits - wantedBits) / abrBuffer);
                         q *= overflow;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"wanted_bits="FLOAT_FORMAT" abr_buffer="FLOAT_FORMAT" overflow="FLOAT_FORMAT" q="FLOAT_FORMAT"\n",wantedBits,abrBuffer,overflow,q);
+    fclose(fp);
+  }
+#endif
                     }
                 }
             }
 
             if (m_sliceType == I_SLICE && m_param->keyframeMax > 1
-                && m_lastNonBPictType != I_SLICE && !m_isAbrReset)
+                && m_lastNonBPictType != I_SLICE 
+#if ABR_RESET
+                && !m_isAbrReset
+#endif
+                )
             {
                 q = x265_qp2qScale(m_accumPQp / m_accumPNorm);
                 q /= fabs(m_param->rc.ipFactor);
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"accum_p_qp="FLOAT_FORMAT" accum_p_norm="FLOAT_FORMAT" q="FLOAT_FORMAT"\n",m_accumPQp,m_accumPNorm,q);
+    fclose(fp);
+  }
+#endif
             }
             else if (m_framesDone > 0)
             {
@@ -1560,7 +1810,16 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
                     double lqmin = 0, lqmax = 0;
                     lqmin = m_lastQScaleFor[m_sliceType] / m_lstep;
                     lqmax = m_lastQScaleFor[m_sliceType] * m_lstep;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"lmin="FLOAT_FORMAT" lmax="FLOAT_FORMAT" last_qscale_for="FLOAT_FORMAT" lstep="FLOAT_FORMAT"\n",lqmin,lqmax,m_lastQScaleFor[m_sliceType],m_lstep);
+    fclose(fp);
+  }
+#endif
+#if AMORTIZE_IFRAME
                     if (!m_partialResidualFrames)
+#endif
                     {
                         if (overflow > 1.1 && m_framesDone > 3)
                             lqmax *= m_lstep;
@@ -1568,6 +1827,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
                             lqmin /= m_lstep;
                     }
                     q = Clip3(lqmin, lqmax, q);
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"lmin="FLOAT_FORMAT" lmax="FLOAT_FORMAT" q="FLOAT_FORMAT"\n",lqmin,lqmax,q);
+    fclose(fp);
+  }
+#endif
                 }
             }
             else if (m_qCompress != 1 && m_param->rc.rateControlMode == X265_RC_CRF)
@@ -1582,6 +1848,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
             }
             q = Clip3(MIN_QPSCALE, MAX_MAX_QPSCALE, q);
             rce->qpNoVbv = x265_qScale2qp(q);
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"q="FLOAT_FORMAT" qp_novbv="FLOAT_FORMAT"\n",q,rce->qpNoVbv);
+    fclose(fp);
+  }
+#endif
             q = clipQscale(curFrame, rce, q);
         }
         m_lastQScaleFor[m_sliceType] = q;
@@ -1592,6 +1865,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
             rce->frameSizePlanned = qScale2bits(rce, q);
         else
             rce->frameSizePlanned = predictSize(&m_pred[m_sliceType], q, (double)m_currentSatd);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "frame_size_planned="FLOAT_FORMAT"\n",rce->frameSizePlanned);
+    fclose(fp);
+  }
+#endif
 
         /* Always use up the whole VBV in this case. */
         if (m_singleFrameVbv)
@@ -1600,6 +1880,13 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
         if (m_isVbv)
             rce->frameSizePlanned = X265_MIN(rce->frameSizePlanned, rce->frameSizeMaximum);
         rce->frameSizeEstimated = rce->frameSizePlanned;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "frame_size_planned="FLOAT_FORMAT"\n",rce->frameSizeEstimated);
+    fclose(fp);
+  }
+#endif
         rce->newQScale = q;
         return q;
     }
@@ -1607,6 +1894,7 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
 
 void RateControl::rateControlUpdateStats(RateControlEntry* rce)
 {
+#if AMORTIZE_IFRAME
     if (!m_param->rc.bStatWrite && !m_param->rc.bStatRead)
     {
         if (rce->sliceType == I_SLICE)
@@ -1625,6 +1913,16 @@ void RateControl::rateControlUpdateStats(RateControlEntry* rce)
              m_partialResidualFrames--;
         }
     }
+#endif
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"rowTotalBits=%lld m_partialResidualCost=%d m_partialResidualFrames=%d rowCplxrSum="FLOAT_FORMAT" cplxr_sum="FLOAT_FORMAT"\n",
+      rce->rowTotalBits,m_partialResidualCost,m_partialResidualFrames,rce->rowCplxrSum,m_cplxrSum);
+    fclose(fp);
+  }
+#endif
+
     if (rce->sliceType != B_SLICE)
         rce->rowCplxrSum = rce->rowTotalBits * x265_qp2qScale(rce->qpaRc) / rce->qRceq;
     else
@@ -1632,6 +1930,14 @@ void RateControl::rateControlUpdateStats(RateControlEntry* rce)
 
     m_cplxrSum += rce->rowCplxrSum;
     m_totalBits += rce->rowTotalBits;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"rowCplxrSum="FLOAT_FORMAT" qpa_rc="FLOAT_FORMAT" qrceq="FLOAT_FORMAT" cplxr_sum="FLOAT_FORMAT" m_totalBits=%lld\n",
+      rce->rowCplxrSum,rce->qpaRc ,rce->qRceq,m_cplxrSum,m_totalBits);
+    fclose(fp);
+  }
+#endif
 
     /* do not allow the next frame to enter rateControlStart() until this
      * frame has updated its mid-frame statistics */
@@ -1694,14 +2000,29 @@ void RateControl::hrdFullness(SEIBufferingPeriod *seiBP)
     seiBP->m_initialCpbRemovalDelayOffset = (uint32_t)(num * cpbSize + denom) / denom - seiBP->m_initialCpbRemovalDelay;
 }
 
-void RateControl::updateVbvPlan(Encoder* enc)
+void RateControl::updateVbvPlan(Encoder* enc, RateControlEntry* rce)
 {
     m_bufferFill = m_bufferFillFinal;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "update_vbv_plan:poc=%d cnt=%d buffer_fill=%.4f\n", m_curSlice->m_poc,rce->encodeOrder,m_bufferFill);
+    fclose(fp);
+  }
+#endif
     enc->updateVbvPlan(this);
 }
 
 double RateControl::predictSize(Predictor *p, double q, double var)
 {
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "predictor[coeff="FLOAT_FORMAT" count="FLOAT_FORMAT" offset="FLOAT_FORMAT"] q="FLOAT_FORMAT" var="FLOAT_FORMAT"\n"
+      ,p->coeff,p->count,p->offset,q,var);
+    fclose(fp);
+  }
+#endif
     return (p->coeff * var + p->offset) / (q * p->count);
 }
 
@@ -1730,11 +2051,25 @@ double RateControl::clipQscale(Frame* curFrame, RateControlEntry* rce, double q)
                 else
                     curBits = predictSize(&m_pred[m_sliceType], q, (double)m_currentSatd);
                 double bufferFillCur = m_bufferFill - curBits;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "buffer_fill="FLOAT_FORMAT" cur_bits="FLOAT_FORMAT" buffer_fill_cur="FLOAT_FORMAT"\n",m_bufferFill,curBits,bufferFillCur);
+    fclose(fp);
+  }
+#endif
                 double targetFill;
                 double totalDuration = 0;
                 frameQ[P_SLICE] = m_sliceType == I_SLICE ? q * m_param->rc.ipFactor : (m_sliceType == B_SLICE ? q / m_param->rc.pbFactor : q);
                 frameQ[B_SLICE] = frameQ[P_SLICE] * m_param->rc.pbFactor;
                 frameQ[I_SLICE] = frameQ[P_SLICE] / m_param->rc.ipFactor;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "frame_q="FLOAT_FORMAT" frame_q="FLOAT_FORMAT" frame_q="FLOAT_FORMAT"\n",frameQ[P_SLICE],frameQ[B_SLICE],frameQ[I_SLICE]);
+    fclose(fp);
+  }
+#endif
                 /* Loop over the planned future frames. */
                 for (int j = 0; bufferFillCur >= 0; j++)
                 {
@@ -1749,10 +2084,25 @@ double RateControl::clipQscale(Frame* curFrame, RateControlEntry* rce, double q)
                     type = IS_X265_TYPE_I(type) ? I_SLICE : IS_X265_TYPE_B(type) ? B_SLICE : P_SLICE;
                     curBits = predictSize(&m_pred[type], frameQ[type], (double)satd);
                     bufferFillCur -= curBits;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "j=%d total_duration="FLOAT_FORMAT" buffer_fill_cur="FLOAT_FORMAT" i_satd=%d cur_bits="FLOAT_FORMAT"\n",
+      j,totalDuration,bufferFillCur,(int)satd,curBits);
+    fclose(fp);
+  }
+#endif
                 }
 
                 /* Try to get the buffer at least 50% filled, but don't set an impossible goal. */
                 targetFill = X265_MIN(m_bufferFill + totalDuration * m_vbvMaxRate * 0.5, m_bufferSize * 0.5);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "target_fill="FLOAT_FORMAT" buffer_fill_cur="FLOAT_FORMAT" q="FLOAT_FORMAT"\n", targetFill,bufferFillCur,q);
+    fclose(fp);
+  }
+#endif
                 if (bufferFillCur < targetFill)
                 {
                     q *= 1.01;
@@ -1761,6 +2111,13 @@ double RateControl::clipQscale(Frame* curFrame, RateControlEntry* rce, double q)
                 }
                 /* Try to get the buffer no more than 80% filled, but don't set an impossible goal. */
                 targetFill = Clip3(m_bufferSize * 0.8, m_bufferSize, m_bufferFill - totalDuration * m_vbvMaxRate * 0.5);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "target_fill="FLOAT_FORMAT" buffer_fill_cur="FLOAT_FORMAT" q="FLOAT_FORMAT"\n", targetFill,bufferFillCur,q);
+    fclose(fp);
+  }
+#endif
                 if (m_isCbr && bufferFillCur > targetFill)
                 {
                     q /= 1.01;
@@ -1809,6 +2166,13 @@ double RateControl::clipQscale(Frame* curFrame, RateControlEntry* rce, double q)
         double pbits = predictSize(&m_pred[m_sliceType], q, (double)m_currentSatd);
         if (pbits > rce->frameSizeMaximum)
             q *= pbits / rce->frameSizeMaximum;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "pbits="FLOAT_FORMAT" frame_size_maximum="FLOAT_FORMAT" q="FLOAT_FORMAT"\n", pbits,rce->frameSizeMaximum,q);
+    fclose(fp);
+  }
+#endif
 
         // Check B-frame complexity, and use up any bits that would
         // overflow before the next P-frame.
@@ -1825,11 +2189,22 @@ double RateControl::clipQscale(Frame* curFrame, RateControlEntry* rce, double q)
             space = m_bufferFill + (1 + nb) * m_bufferRate - m_bufferSize;
             if (pbbits < space)
                 q *= X265_MAX(pbbits / space, bits / (0.5 * m_bufferSize));
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "bits="FLOAT_FORMAT" bbits="FLOAT_FORMAT" space="FLOAT_FORMAT" q="FLOAT_FORMAT"\n", bits,bbits,space,q);
+    fclose(fp);
+  }
+#endif
 
             q = X265_MAX(q0 / 2, q);
         }
 
-        if (!m_isCbr || (m_isAbr && m_currentSatd >= rce->movingAvgSum && q <= q0 / 2))
+        if (!m_isCbr 
+#if ABR_RESET
+          || (m_isAbr && m_currentSatd >= rce->movingAvgSum && q <= q0 / 2)
+#endif
+          )
             q = X265_MAX(q0, q);
 
         if (m_rateFactorMaxIncrement)
@@ -1870,6 +2245,14 @@ double RateControl::predictRowsSizeSum(Frame* curFrame, RateControlEntry* rce, d
         rowSatdCostSoFar = curEncData.m_rowStat[row].diagSatd;
         uint32_t satdCostForPendingCus = curEncData.m_rowStat[row].satdForVbv - rowSatdCostSoFar;
         satdCostForPendingCus >>= X265_DEPTH - 8;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "row=%d encodedBitsSoFar=%d rowSatdCostSoFar=%d satdCostForPendingCus=%d\n"
+      ,row,encodedBitsSoFar,rowSatdCostSoFar,satdCostForPendingCus);
+    fclose(fp);
+  }
+#endif
         if (satdCostForPendingCus  > 0)
         {
             double pred_s = predictSize(rce->rowPred[0], qScale, satdCostForPendingCus);
@@ -1885,6 +2268,15 @@ double RateControl::predictRowsSizeSum(Frame* curFrame, RateControlEntry* rce, d
                     refRowSatdCost += refEncData.m_cuStat[cuAddr].vbvCost;
                     refRowBits += refEncData.m_cuStat[cuAddr].totalBits;
                     intraCost += curEncData.m_cuStat[cuAddr].intraVbvCost;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "cuAddr=%d refRowSatdCost=%d(%d) refRowBits=%d(%d) intraCost=%d(%d)\n"
+      ,cuAddr,refRowSatdCost,refEncData.m_cuStat[cuAddr].vbvCost,
+      refRowBits,refEncData.m_cuStat[cuAddr].totalBits,intraCost,curEncData.m_cuStat[cuAddr].intraVbvCost);
+    fclose(fp);
+  }
+#endif
                 }
 
                 refRowSatdCost >>= X265_DEPTH - 8;
@@ -1899,6 +2291,14 @@ double RateControl::predictRowsSizeSum(Frame* curFrame, RateControlEntry* rce, d
                     && refQScale > 0
                     && refRowSatdCost > 0)
                 {
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "AS265_ABS(refRowSatdCost - satdCostForPendingCus)=%d satdCostForPendingCus/2=%d\n"
+      ,abs(int32_t(refRowSatdCost - satdCostForPendingCus)),(int32_t)satdCostForPendingCus / 2);
+    fclose(fp);
+  }
+#endif
                     if (abs(int32_t(refRowSatdCost - satdCostForPendingCus)) < (int32_t)satdCostForPendingCus / 2)
                     {
                         double predTotal = refRowBits * satdCostForPendingCus / refRowSatdCost * refQScale / qScale;
@@ -1915,18 +2315,42 @@ double RateControl::predictRowsSizeSum(Frame* curFrame, RateControlEntry* rce, d
                 /* Sum: better to overestimate than underestimate by using only one of the two predictors. */
                 totalSatdBits += int32_t(pred_intra + pred_s);
             }
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "pred_s="FLOAT_FORMAT" refRowSatdCost=%d refRowBits=%d intraCost=%d refQScale="FLOAT_FORMAT" totalSatdBits=%d\n"
+      ,pred_s,refRowSatdCost,refRowBits,intraCost,refQScale,totalSatdBits);
+    fclose(fp);
+  }
+#endif
         }
     }
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "encodedBitsSoFar=%d rowSatdCostSoFar=%d totalSatdBits=%d\n"
+      ,encodedBitsSoFar,rowSatdCostSoFar,totalSatdBits);
+    fclose(fp);
+  }
+#endif
 
     return totalSatdBits + encodedBitsSoFar;
 }
 
-int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateControlEntry* rce, double& qpVbv)
+int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, uint32_t col, RateControlEntry* rce, double& qpVbv)
 {
     FrameData& curEncData = *curFrame->m_encData;
     double qScaleVbv = x265_qp2qScale(qpVbv);
     uint64_t rowSatdCost = curEncData.m_rowStat[row].diagSatd;
     double encodedBits = curEncData.m_rowStat[row].encodedBits;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "ctu_x=%d ctu_y=%d qpVbv="FLOAT_FORMAT" qScaleVbv="FLOAT_FORMAT" rowSatdCost=%d encodedBits="FLOAT_FORMAT"\n"
+      ,col,row,qpVbv,qScaleVbv,rowSatdCost,encodedBits);
+    fclose(fp);
+  }
+#endif
 
     if (row == 1)
     {
@@ -1941,6 +2365,14 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
         if (qpVbv < refFrame->m_encData->m_rowStat[row].diagQp)
         {
             uint64_t intraRowSatdCost = curEncData.m_rowStat[row].diagIntraSatd;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "qpVbv="FLOAT_FORMAT" diaQp="FLOAT_FORMAT" intraRowSatdCost=%d\n"
+      ,qpVbv,refFrame->m_encData->m_rowStat[row].diagQp,intraRowSatdCost);
+    fclose(fp);
+  }
+#endif
             if (row == 1)
                 intraRowSatdCost += curEncData.m_rowStat[0].diagIntraSatd;
 
@@ -1966,6 +2398,14 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
 
     const SPS& sps = *curEncData.m_slice->m_sps;
     double maxFrameError = X265_MAX(0.05, 1.0 / sps.numCuInHeight);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "qp_max="FLOAT_FORMAT" qp_min="FLOAT_FORMAT" buffer_left_planned="FLOAT_FORMAT" max_frame_error="FLOAT_FORMAT"\n"
+      ,qpMax,qpMin,bufferLeftPlanned,maxFrameError);
+    fclose(fp);
+  }
+#endif
 
     if (row < sps.numCuInHeight - 1)
     {
@@ -1981,6 +2421,13 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
         double rcTol = bufferLeftPlanned / m_param->frameNumThreads * m_param->rc.rateTolerance;
         int32_t encodedBitsSoFar = 0;
         double accFrameBits = predictRowsSizeSum(curFrame, rce, qpVbv, encodedBitsSoFar);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "rc_tol="FLOAT_FORMAT" b1="FLOAT_FORMAT" encodedBitsSoFar=%d\n",rcTol,accFrameBits,encodedBitsSoFar);
+    fclose(fp);
+  }
+#endif
 
         /* * Don't increase the row QPs until a sufficent amount of the bits of
          * the frame have been processed, in case a flat area at the top of the
@@ -2001,6 +2448,16 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
         {
             qpVbv += stepSize;
             accFrameBits = predictRowsSizeSum(curFrame, rce, qpVbv, encodedBitsSoFar);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "WHILE1:qpVbv="FLOAT_FORMAT" qp_max="FLOAT_FORMAT" qp_novbv="FLOAT_FORMAT"\n",qpVbv,qpMax,rce->qpNoVbv);
+    fprintf(fp, "WHILE1:b1="FLOAT_FORMAT" frame_size_planned="FLOAT_FORMAT" rc_tol="FLOAT_FORMAT"\n",accFrameBits,rce->frameSizePlanned,rcTol);
+    fprintf(fp, "WHILE1:bufferFill="FLOAT_FORMAT" buffer_left_planned="FLOAT_FORMAT"\n",rce->bufferFill,bufferLeftPlanned);
+    fprintf(fp, "WHILE1:b1="FLOAT_FORMAT" qpVbv="FLOAT_FORMAT" encodedBitsSoFar=%d\n",accFrameBits,qpVbv,encodedBitsSoFar);
+    fclose(fp);
+  }
+#endif
         }
 
         while (qpVbv > qpMin
@@ -2010,6 +2467,13 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
         {
             qpVbv -= stepSize;
             accFrameBits = predictRowsSizeSum(curFrame, rce, qpVbv, encodedBitsSoFar);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "WHILE2:b1="FLOAT_FORMAT" qpVbv="FLOAT_FORMAT" encodedBitsSoFar=%d\n",accFrameBits,qpVbv,encodedBitsSoFar);
+    fclose(fp);
+  }
+#endif
         }
 
         /* avoid VBV underflow or MinCr violation */
@@ -2019,6 +2483,13 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
         {
             qpVbv += stepSize;
             accFrameBits = predictRowsSizeSum(curFrame, rce, qpVbv, encodedBitsSoFar);
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "WHILE3:b1="FLOAT_FORMAT" qpVbv="FLOAT_FORMAT" encodedBitsSoFar=%d\n",accFrameBits,qpVbv,encodedBitsSoFar);
+    fclose(fp);
+  }
+#endif
         }
 
         rce->frameSizeEstimated = accFrameBits;
@@ -2085,6 +2556,14 @@ void RateControl::updatePredictor(Predictor *p, double q, double var, double bit
 {
     if (var < 10)
         return;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "before:predictor[coeff="FLOAT_FORMAT" count="FLOAT_FORMAT" offset="FLOAT_FORMAT"] q="FLOAT_FORMAT" var="FLOAT_FORMAT" bits="FLOAT_FORMAT"\n"
+      ,p->coeff,p->count,p->offset,q,var,bits);
+    fclose(fp);
+  }
+#endif
     const double range = 1.5;
     double old_coeff = p->coeff / p->count;
     double new_coeff = bits * q / var;
@@ -2100,6 +2579,14 @@ void RateControl::updatePredictor(Predictor *p, double q, double var, double bit
     p->count++;
     p->coeff  += new_coeff;
     p->offset += new_offset;
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV),"a");
+    fprintf(fp, "after:predictor[coeff="FLOAT_FORMAT" count="FLOAT_FORMAT" offset="FLOAT_FORMAT"] q="FLOAT_FORMAT" var="FLOAT_FORMAT" bits="FLOAT_FORMAT"\n"
+      ,p->coeff,p->count,p->offset,q,var,bits);
+    fclose(fp);
+  }
+#endif
 }
 
 void RateControl::updateVbv(int64_t bits, RateControlEntry* rce)
@@ -2139,8 +2626,10 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
     Slice *slice = curEncData.m_slice;
     if (m_isAbr)
     {
+#if ABR_RESET
         if (m_param->rc.rateControlMode == X265_RC_ABR && !m_param->rc.bStatRead)
             checkAndResetABR(rce, true);
+#endif
 
         if (m_param->rc.rateControlMode == X265_RC_CRF)
         {
@@ -2161,8 +2650,17 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
     {
         if (m_isVbv)
         {
-            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++)
+          curEncData.m_avgQpRc=0;
+            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++){
                 curEncData.m_avgQpRc += curEncData.m_rowStat[i].sumQpRc;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"i=%d row_sumQpRc="FLOAT_FORMAT" m_avgQpRc="FLOAT_FORMAT"\n",i,curEncData.m_rowStat[i].sumQpRc,curEncData.m_avgQpRc);
+    fclose(fp);
+  }
+#endif
+            }
 
             curEncData.m_avgQpRc /= slice->m_sps->numCUsInFrame;
             rce->qpaRc = curEncData.m_avgQpRc;
@@ -2173,12 +2671,28 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
 
         if (m_param->rc.aqMode)
         {
-            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++)
+          curEncData.m_avgQpAq=0;
+            for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++){
                 curEncData.m_avgQpAq += curEncData.m_rowStat[i].sumQpAq;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+        {
+          FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+          fprintf(fp,"i=%d row_sumQpAq="FLOAT_FORMAT" m_avgQpAq="FLOAT_FORMAT"\n",i,curEncData.m_rowStat[i].sumQpAq,curEncData.m_avgQpAq);
+          fclose(fp);
+        }
+#endif
+            }
 
             curEncData.m_avgQpAq /= slice->m_sps->numCUsInFrame;
         }
     }
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"bits=%d f_qp_avg_rc="FLOAT_FORMAT" f_qp_avg_aq="FLOAT_FORMAT"\n",bits,curEncData.m_avgQpRc,curEncData.m_avgQpAq);
+    fclose(fp);
+  }
+#endif
 
     // Write frame stats into the stats file if 2 pass is enabled.
     if (m_param->rc.bStatWrite)
@@ -2209,8 +2723,13 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
                 goto writeFailure;
         }
     }
-    if (m_isAbr && !m_isAbrReset)
+    if (m_isAbr 
+#if ABR_RESET
+      && !m_isAbrReset
+#endif
+      )
     {
+#if AMORTIZE_IFRAME
         /* amortize part of each I slice over the next several frames, up to
          * keyint-max, to avoid over-compensating for the large I slice cost */
         if (!m_param->rc.bStatWrite && !m_param->rc.bStatRead)
@@ -2230,6 +2749,14 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
                 m_residualFrames--;
             }
         }
+#endif
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"bits=%d m_residualCost=%d m_residualFrames=%d cplxr_sum="FLOAT_FORMAT"\n",bits,m_residualCost,m_residualFrames,m_cplxrSum);
+    fclose(fp);
+  }
+#endif
         if (rce->sliceType != B_SLICE)
         {
             /* The factor 1.5 is to tune up the actual bits, otherwise the cplxrSum is scaled too low
@@ -2244,9 +2771,19 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
         }
         m_wantedBitsWindow += m_frameDuration * m_bitrate;
         m_totalBits += bits - rce->rowTotalBits;
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp=fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR),"a");
+    fprintf(fp,"cplxr_sum="FLOAT_FORMAT" qpa_rc="FLOAT_FORMAT" qrceq="FLOAT_FORMAT" wanted_bits_window="FLOAT_FORMAT" m_totalBits=%lld\n",
+      m_cplxrSum,rce->qpaRc,rce->qRceq,m_wantedBitsWindow,m_totalBits);
+    fclose(fp);
+  }
+#endif
+#if ABR_RESET
         int pos = m_sliderPos - m_param->frameNumThreads;
         if (pos >= 0)
             m_encodedBitsWindow[pos % s_slidingWindowFrames] = actualBits;
+#endif
     }
 
     if (m_2pass)
@@ -2262,6 +2799,14 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
             m_bframeBits += actualBits;
             if (rce->bLastMiniGopBFrame)
             {
+#if DEBUG_RC_WHOLE_PROCESS_VBV
+    {
+      FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_VBV), "a");
+      fprintf(fp, "bframe_bits=%d bframes=%d leadingNoBSatd=%d actualBits=%d\n"
+              , m_bframeBits, rce->bframes, rce->leadingNoBSatd,actualBits);
+      fclose(fp);
+    }
+#endif
                 if (rce->bframes != 0)
                     updatePredictor(&m_predBfromP, x265_qp2qScale(rce->qpaRc), (double)rce->leadingNoBSatd, (double)m_bframeBits / rce->bframes);
                 m_bframeBits = 0;

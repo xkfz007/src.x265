@@ -27,6 +27,7 @@
 #include "common.h"
 #include "primitives.h"
 #include "x265.h"
+#include "lowres.h"
 
 #include <cstdlib> // abs()
 
@@ -1045,6 +1046,13 @@ void estimateCUPropagateCost(int *dst, uint16_t *propagateIn, int32_t *intraCost
 {
     double fps = *fpsFactor / 256;
 
+#if DEBUG_MBTREE_PROCESS
+  {
+    FILE* fp= fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+    fprintf(fp,"fps="FLOAT_FORMAT" len=%d\n",fps,len);
+    fclose(fp);
+  }
+#endif
     for (int i = 0; i < len; i++)
     {
         double intraCost       = intraCosts[i] * invQscales[i];
@@ -1052,6 +1060,14 @@ void estimateCUPropagateCost(int *dst, uint16_t *propagateIn, int32_t *intraCost
         double propagateNum    = (double)intraCosts[i] - (interCosts[i] & ((1 << 14) - 1));
         double propagateDenom  = (double)intraCosts[i];
         dst[i] = (int)(propagateAmount * propagateNum / propagateDenom + 0.5);
+#if DEBUG_MBTREE_PROCESS
+  {
+    FILE* fp= fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+    fprintf(fp,"i=%d:intra_cost="FLOAT_FORMAT" propagate_amount="FLOAT_FORMAT"\n",i,intraCost,propagateAmount);
+    fprintf(fp,"     propagate_num="FLOAT_FORMAT" propagate_denom="FLOAT_FORMAT" dst[%d]=%d\n",propagateNum,propagateDenom,i,dst[i]);
+    fclose(fp);
+  }
+#endif
     }
 }
 }  // end anonymous namespace
