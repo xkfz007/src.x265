@@ -127,6 +127,32 @@ struct RateControlEntry
     HRDTiming        *hrdTiming;
 };
 
+#if OUTPUT_RC_STAT
+  struct rc_stat_t {
+    double curr_bitrate;
+    double max_bitrate;
+    double min_bitrate;
+    double curr_bitrate_1sec;
+    double max_bitrate_1sec;
+    double min_bitrate_1sec;
+    double bitrate_1sec_sum;
+    double bitrate_1sec_cnt;
+
+    int64_t buffer_status;
+    int64_t overflow;
+    int64_t underflow;
+    int64_t of_flag;
+    int64_t uf_flag;
+    int64_t of_global;
+    int64_t uf_global;
+    double qp_rc;
+    double qp_aq;
+    double qp_rc_sum;
+    double qp_aq_sum;
+    int64_t total_bits;
+    int total_frames;
+  } ;
+#endif
 class RateControl
 {
 public:
@@ -231,6 +257,17 @@ public:
                                 * This value is the current position (0 or 1). */
     } m_cuTreeStats;
 
+#if OUTPUT_RC_STAT
+    rc_stat_t stat;
+    int nearest_frame_window[70];
+    int win_start;
+    int win_end;
+    char rcinfo_filename[512];
+    int RateControl::get_frame_win_bits(int win_sz) ;
+    void RateControl::rc_stat_init(rc_stat_t* stat) ;
+    void RateControl::rc_stat_check_vbv(rc_stat_t* stat, int bits) ;
+    void RateControl::rc_stat_update(rc_stat_t* stat, int bits, double qp_rc, double qp_aq) ;
+#endif
     RateControl(x265_param& p);
     bool init(const SPS& sps);
     void initHRD(SPS& sps);

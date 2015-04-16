@@ -157,6 +157,96 @@ x265_zone* RateControl::getZone()
     return NULL;
 }
 
+#if OUTPUT_RC_STAT
+int RateControl::get_frame_win_bits(int win_sz) {
+    int tmp_bits = 0;
+    int j = win_end;
+    for(int i = 0; i < win_sz; i++) {
+        j--;
+        if(j < 0)
+            j += win_sz;
+        tmp_bits += nearest_frame_window[j];
+    }
+    return tmp_bits;
+}
+void RateControl::rc_stat_init(rc_stat_t* stat) {
+    //rc->brate = AS265_VMF_S32_MAX;
+    stat->curr_bitrate = MAX_DOUBLE;
+    stat->max_bitrate = 0;
+    stat->min_bitrate = MAX_DOUBLE;
+    stat->curr_bitrate_1sec = MAX_INT;
+    stat->max_bitrate_1sec = 0;
+    stat->min_bitrate_1sec = MAX_INT;
+    stat->bitrate_1sec_sum=0;
+    stat->bitrate_1sec_cnt=0;
+    stat->uf_global = 0;
+    stat->of_global = 0;
+    stat->overflow = 0;
+    stat->underflow = 0;
+    stat->total_bits = 0;
+    stat->total_frames = 0;
+    stat->buffer_status = 0;
+    stat->qp_rc_sum = 0;
+    stat->qp_aq_sum = 0;
+}
+void RateControl::rc_stat_check_vbv(rc_stat_t* stat, int bits) {
+    double buf_stat = m_bufferFillFinal - bits;
+    stat->uf_flag = 0;
+    stat->of_flag = 0;
+    stat->overflow = 0;
+    stat->underflow = 0;
+    if(buf_stat < 0) {
+        stat->uf_flag = 1;
+        stat->underflow = buf_stat;
+        buf_stat = 0;
+    }
+    buf_stat += m_bufferRate;
+    if(m_isCbr && buf_stat > m_bufferSize) {
+        stat->of_flag = 1;
+        stat->overflow = buf_stat - m_bufferSize;
+        //stat->filler = (VMF_S32)((buf_stat - rcc->buffer_size + 7) / 8);
+        //int bits = AS265_MAX(FILLER_OVERHEAD , stat->filler) * 8;
+        //stat->overflow=buf_stat-bits;
+    }
+}
+void RateControl::rc_stat_update(rc_stat_t* stat, int bits, double qp_rc, double qp_aq) {
+    //static VMF_DOUBLE totalbits = 0;
+    //static int total_frames = 0;
+    stat->total_frames++;
+    stat->total_bits += bits;
+    //rc->brate = totalbits * 0.001 / (total_frames * rc->m_frameDuration) ;
+    //log_message(PRINTF_ID_AS265_RC_ABR, "as265_ratecontrol_end:thread= %d poc= %lld cnt= %lld qp_rc= %.4f qp_aq= %.4f\n", h->tid, h->fenc->frame_count, rce->encode_order, h->fdec->f_qp_avg_rc, h->fdec->f_qp_avg_aq);
+    //log_message(PRINTF_ID_AS265_RC_ABR, "as265_ratecontrol_end:thread= %d poc= %lld cnt= %lld bits= %d bitrate= %.4f\n", h->tid, h->fenc->frame_count, rce->encode_order, actualBits, rc->brate);
+    stat->curr_bitrate = stat->total_bits * 0.001 / (stat->total_frames * m_frameDuration) ;
+    if(stat->curr_bitrate > stat->max_bitrate)
+        stat->max_bitrate = stat->curr_bitrate;
+    if(stat->curr_bitrate < stat->min_bitrate)
+        stat->min_bitrate = stat->curr_bitrate;
+
+    if(m_framesDone >= m_fps) {
+        int fwin_bits = get_frame_win_bits(m_fps);
+        stat->curr_bitrate_1sec = fwin_bits * 0.001;
+        if(stat->curr_bitrate_1sec > stat->max_bitrate_1sec)
+            stat->max_bitrate_1sec = stat->curr_bitrate_1sec;
+        if(stat->curr_bitrate_1sec < stat->min_bitrate_1sec)
+            stat->min_bitrate_1sec = stat->curr_bitrate_1sec;
+        stat->bitrate_1sec_sum+=stat->curr_bitrate_1sec;
+        stat->bitrate_1sec_cnt++;
+    }
+    else{
+        stat->max_bitrate_1sec=stat->min_bitrate_1sec=
+            stat->curr_bitrate_1sec=stat->curr_bitrate;
+    }
+    stat->qp_rc_sum += qp_rc;
+    stat->qp_aq_sum += qp_aq;
+    stat->qp_rc = qp_rc;
+    stat->qp_aq = qp_aq;
+    stat->buffer_status = m_bufferFillFinal;
+    stat->of_global |= stat->of_flag;
+    stat->uf_global |= stat->uf_flag;
+
+}
+#endif
 RateControl::RateControl(x265_param& p)
 {
     m_param = &p;
@@ -305,6 +395,54 @@ RateControl::RateControl(x265_param& p)
 
     for (int i = 0; i < 2; i++)
         m_cuTreeStats.qpBuffer[i] = NULL;
+
+#if OUTPUT_RC_STAT
+    for(int i = 0; i < 70; i++) {
+        nearest_frame_window[i] = 0;
+    }
+    win_start = 0;
+    win_end = 0;
+
+    rc_stat_init(&stat);
+
+    if(m_isAbr) {
+        const char* pos;
+        char* s;
+        pos = strrchr(m_param->outputfn, '\\');
+        if(pos == NULL)
+            pos = strrchr(m_param->outputfn, '/');
+
+        if(pos != NULL) {
+            strncpy(rcinfo_filename, m_param->outputfn, pos - m_param->outputfn + 1);
+            s = rcinfo_filename + (pos - m_param->outputfn + 1);
+        } else
+            s = rcinfo_filename;
+
+        s += sprintf(s, "_rc_x265-0-");
+
+        pos = strrchr(m_param->inputfn, '\\');
+        if(pos == NULL)
+            pos = strrchr(m_param->inputfn, '/');
+        pos++;
+
+
+        //sprintf(rcinfo_filename, "%s_rc_x265-%d-%s-RC%d_%d_%d_%d_%d_%d_%d_%d_P%d",
+        sprintf(s, "%s-RC%d_%d_%d_%d_%d_%d_%d_%d_P%d",
+            pos,
+            m_param->rc.rateControlMode,
+            m_param->rc.bitrate,
+            m_param->rc.vbvMaxBitrate,
+            m_param->rc.vbvBufferSize,
+            0,
+            m_param->lookaheadDepth,
+            m_param->rc.aqMode,
+            m_param->rc.cuTree,
+            m_param->rdLevel);
+
+        FILE* rc_info_f = fopen(rcinfo_filename, "w");
+        fclose(rc_info_f);
+    }
+#endif
 }
 
 bool RateControl::init(const SPS& sps)
@@ -2156,6 +2294,9 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
     {
         if (m_isVbv)
         {
+#if FIX_QP_CALC_BUG
+            curEncData.m_avgQpRc = 0;
+#endif
             for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++)
                 curEncData.m_avgQpRc += curEncData.m_rowStat[i].sumQpRc;
 
@@ -2168,6 +2309,9 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
 
         if (m_param->rc.aqMode)
         {
+#if FIX_QP_CALC_BUG
+            curEncData.m_avgQpAq = 0;
+#endif
             for (uint32_t i = 0; i < slice->m_sps->numCuInHeight; i++)
                 curEncData.m_avgQpAq += curEncData.m_rowStat[i].sumQpAq;
 
@@ -2253,6 +2397,9 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
 
     if (m_isVbv)
     {
+#if OUTPUT_RC_STAT
+        rc_stat_check_vbv(&stat, actualBits);
+#endif
         updateVbv(actualBits, rce);
 
         if (m_param->bEmitHRDSEI)
@@ -2281,6 +2428,32 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
             rce->hrdTiming->dpbOutputTime = (double)rce->picTimingSEI->m_picDpbOutputDelay * time->numUnitsInTick / time->timeScale + rce->hrdTiming->cpbRemovalTime;
         }
     }
+#if OUTPUT_RC_STAT
+
+    nearest_frame_window[win_end % (int)m_fps] = (actualBits);
+    win_end = (win_end + 1) % (int)m_fps;
+    rc_stat_update(&stat, actualBits , curEncData.m_avgQpRc, curEncData.m_avgQpAq);
+
+    if(m_isAbr) {
+        FILE* rc_info_f = fopen(rcinfo_filename, "a");
+        fprintf(rc_info_f, "%5d %8d %7.2f %7.2f %7.2f %7.2f %7.2f %8d %1d %5d %1d %2d %4.2f %4.2f\n",
+            rce->poc, rce->lastSatd,
+            stat.curr_bitrate,
+            stat.min_bitrate,
+            stat.curr_bitrate_1sec,
+            stat.max_bitrate_1sec,
+            stat.min_bitrate_1sec,
+            stat.buffer_status,
+            stat.of_flag,
+            stat.overflow,
+            stat.uf_flag,
+            stat.underflow,
+            stat.qp_rc,
+            stat.qp_aq
+            );
+        fclose(rc_info_f);
+    }
+#endif
     rce->isActive = false;
     // Allow rateControlStart of next frame only when rateControlEnd of previous frame is over
     m_startEndOrder.incr();

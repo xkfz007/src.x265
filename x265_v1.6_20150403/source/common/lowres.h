@@ -29,6 +29,10 @@
 #include "picyuv.h"
 #include "mv.h"
 
+//bug fixed
+#define FIX_CTU_COST_BUG 1
+#define FIX_QP_CALC_BUG 1
+#define OUTPUT_RC_STAT 1
 namespace x265 {
 // private namespace
 

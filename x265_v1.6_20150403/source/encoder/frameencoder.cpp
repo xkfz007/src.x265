@@ -361,6 +361,13 @@ void FrameEncoder::compressFrame()
         }
     }
 
+#if FIX_CTU_COST_BUG
+    if(m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0)
+      for(int i = 0; i < m_frame->m_encData->m_slice->m_sps->numCUsInFrame; i++) {
+        calcCTUCost(i);
+      }
+
+#endif
     /* Get the QP for this frame from rate control. This call may block until
      * frames ahead of it in encode order have called rateControlEnd() */
     int qp = m_top->m_rateControl->rateControlStart(m_frame, &m_rce, m_top);
@@ -1205,12 +1212,14 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
 
     FrameData& curEncData = *m_frame->m_encData;
     /* clear cuCostsForVbv from when vbv row reset was triggered */
+#if !FIX_CTU_COST_BUG
     bool bIsVbv = m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0;
     if (bIsVbv)
     {
         curEncData.m_cuStat[ctuAddr].vbvCost = 0;
         curEncData.m_cuStat[ctuAddr].intraVbvCost = 0;
     }
+#endif
 
     /* Derive qpOffet for each CU by averaging offsets for all 16x16 blocks in the cu. */
     double qp_offset = 0;
@@ -1232,11 +1241,13 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
             idx = block_x + w + (block_y * maxBlockCols);
             if (m_param->rc.aqMode)
                 qp_offset += qpoffs[idx];
+#if !FIX_CTU_COST_BUG
             if (bIsVbv)
             {
                 curEncData.m_cuStat[ctuAddr].vbvCost += m_frame->m_lowres.lowresCostForRc[idx] & LOWRES_COST_MASK;
                 curEncData.m_cuStat[ctuAddr].intraVbvCost += m_frame->m_lowres.intraCost[idx];
             }
+#endif
             cnt++;
         }
     }
@@ -1247,6 +1258,41 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
     return x265_clip3(QP_MIN, QP_MAX_MAX, (int)(qp + 0.5));
 }
 
+#if FIX_CTU_COST_BUG
+void FrameEncoder::calcCTUCost(uint32_t ctuAddr) {
+  x265_emms();
+
+  FrameData& curEncData = *m_frame->m_encData;
+  /* clear cuCostsForVbv from when vbv row reset was triggered */
+  //bool bIsVbv = m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0;
+  //if (bIsVbv)
+  {
+    curEncData.m_cuStat[ctuAddr].vbvCost = 0;
+    curEncData.m_cuStat[ctuAddr].intraVbvCost = 0;
+  }
+
+  /* Derive qpOffet for each CU by averaging offsets for all 16x16 blocks in the cu. */
+  uint32_t maxBlockCols = (m_frame->m_fencPic->m_picWidth + (16 - 1)) / 16;
+  uint32_t maxBlockRows = (m_frame->m_fencPic->m_picHeight + (16 - 1)) / 16;
+  uint32_t noOfBlocks = g_maxCUSize / 16;
+  uint32_t block_y = (ctuAddr / curEncData.m_slice->m_sps->numCuInWidth) * noOfBlocks;
+  uint32_t block_x = (ctuAddr * noOfBlocks) - block_y * curEncData.m_slice->m_sps->numCuInWidth;
+
+  /* Use cuTree offsets if cuTree enabled and frame is referenced, else use AQ offsets */
+  uint32_t idx = 0;
+  for(uint32_t h = 0; h < noOfBlocks && block_y < maxBlockRows; h++, block_y++) {
+    for(uint32_t w = 0; w < noOfBlocks && (block_x + w) < maxBlockCols; w++) {
+      idx = block_x + w + (block_y * maxBlockCols);
+      //if (bIsVbv)
+      {
+        curEncData.m_cuStat[ctuAddr].vbvCost += m_frame->m_lowres.lowresCostForRc[idx];// & LOWRES_COST_MASK;
+        curEncData.m_cuStat[ctuAddr].intraVbvCost += m_frame->m_lowres.intraCost[idx];
+      }
+    }
+  }
+
+}
+#endif
 Frame *FrameEncoder::getEncodedPicture(NALList& output)
 {
     if (m_frame)

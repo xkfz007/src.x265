@@ -200,6 +200,9 @@ public:
     FrameFilter              m_frameFilter;
     NALList                  m_nalList;
 
+#if FIX_CTU_COST_BUG
+    void calcCTUCost(uint32_t cuAddr);
+#endif
     class WeightAnalysis : public BondedTaskGroup
     {
     public:

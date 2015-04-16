@@ -33,7 +33,7 @@
 #include "cpu.h"
 #include "x265.h"
 #include "x265cli.h"
-
+#include "lowres.h"
 #if HAVE_VLD
 /* Visual Leak Detector */
 #include <vld.h>
@@ -297,6 +297,10 @@ bool CLIOptions::parse(int argc, char **argv, x265_param* param)
         inputfn = argv[optind++];
     if (optind < argc && !bitstreamfn)
         bitstreamfn = argv[optind++];
+#if OUTPUT_RC_STAT
+    param->inputfn = inputfn;
+    param->outputfn = bitstreamfn;
+#endif
     if (optind < argc)
     {
         x265_log(param, X265_LOG_WARNING, "extra unused command arguments given <%s>\n", argv[optind]);
