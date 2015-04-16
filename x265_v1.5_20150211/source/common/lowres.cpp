@@ -80,6 +80,9 @@ bool Lowres::create(PicYuv *origPic, int _bframes, bool bAQEnabled)
         }
     }
 
+#if FIX_INTRACOST_BUG
+    intra_cost = lowresCosts[0][0];
+#endif
     for (int i = 0; i < bframes + 1; i++)
     {
         CHECKED_MALLOC(lowresMvs[0][i], MV, cuCount);

@@ -29,6 +29,12 @@
 #include "picyuv.h"
 #include "mv.h"
 
+//bug fixed
+#define FIX_COST_BUG 1
+#define FIX_INTRACOST_BUG 1
+#define FIX_QP_CALC_BUG 1
+#define FIX_COSTEST_BUG 1
+#define OUTPUT_RC_STAT 1
 namespace x265 {
 // private namespace
 
@@ -132,6 +138,9 @@ struct Lowres : public ReferencePlanes
     int32_t*  lowresMvCosts[2][X265_BFRAME_MAX + 1];
     MV*       lowresMvs[2][X265_BFRAME_MAX + 1];
 
+#if FIX_INTRACOST_BUG
+    uint16_t* intra_cost;
+#endif
     /* used for vbvLookahead */
     int       plannedType[X265_LOOKAHEAD_MAX + 1];
     int64_t   plannedSatd[X265_LOOKAHEAD_MAX + 1];

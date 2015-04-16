@@ -1339,6 +1339,13 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         m_curp0 = p0;
         m_curp1 = p1;
         m_curframes = frames;
+#if FIX_COSTEST_BUG
+    if(!fenc->bIntraCalculated) {
+      fenc->costEst[0][0] = 0;
+      fenc->costEstAq[0][0] = 0;
+    }
+    fenc->intraMbs[b - p0] = 0;
+#endif
         fenc->costEst[b - p0][p1 - b] = 0;
         fenc->costEstAq[b - p0][p1 - b] = 0;
 
@@ -1374,7 +1381,11 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         // Accumulate cost from each row
         for (int row = 0; row < m_heightInCU; row++)
         {
+#if FIX_COSTEST_BUG
+            fenc->costEst[b - p0][p1 - b] += m_rows[row].m_costEst;
+#else
             score += m_rows[row].m_costEst;
+#endif
             fenc->costEst[0][0] += m_rows[row].m_costIntra;
             if (m_param->rc.aqMode)
             {
@@ -1385,7 +1396,9 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         }
 
         fenc->bIntraCalculated = true;
-
+#if !FIX_COSTEST_BUG
+        score = fenc->costEst[b - p0][p1 - b];
+#endif
         if (b != p1)
             score = (uint64_t)score * 100 / (130 + m_param->bFrameBias);
         if (b != p0 || b != p1) //Not Intra cost
@@ -1745,6 +1758,9 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
 
         const int intraPenalty = 5 * m_lookAheadLambda;
         icost += intraPenalty + lowresPenalty; /* estimate intra signal cost */
+#if FIX_INTRACOST_BUG
+        fenc->intra_cost[cuXY] = icost;
+#endif
         fenc->intraCost[cuXY] = icost;
         fenc->intraMode[cuXY] = (uint8_t)ilowmode;
 
