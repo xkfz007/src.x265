@@ -30,7 +30,7 @@
 #include "mv.h"
 
 //bug fixed
-#define FIX_COST_BUG 1
+#define FIX_CTU_COST_BUG 1
 #define FIX_INTRACOST_BUG 1
 #define FIX_QP_CALC_BUG 1
 #define FIX_COSTEST_BUG 1

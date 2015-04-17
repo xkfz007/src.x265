@@ -283,7 +283,7 @@ void FrameEncoder::compressFrame()
         }
     }
 
-#if FIX_COST_BUG
+#if FIX_CTU_COST_BUG
     if(m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0)
       for(int i = 0; i < m_frame->m_encData->m_slice->m_sps->numCUsInFrame; i++) {
         calcCTUCost(i);
@@ -1144,7 +1144,7 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
 
     FrameData& curEncData = *m_frame->m_encData;
     /* clear cuCostsForVbv from when vbv row reset was triggered */
-#if !FIX_COST_BUG
+#if !FIX_CTU_COST_BUG
     bool bIsVbv = m_param->rc.vbvBufferSize > 0 && m_param->rc.vbvMaxBitrate > 0;
     if (bIsVbv)
     {
@@ -1173,7 +1173,7 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
             idx = block_x + w + (block_y * maxBlockCols);
             if (m_param->rc.aqMode)
                 qp_offset += qpoffs[idx];
-#if !FIX_COST_BUG
+#if !FIX_CTU_COST_BUG
             if (bIsVbv)
             {
                 curEncData.m_cuStat[ctuAddr].vbvCost += m_frame->m_lowres.lowresCostForRc[idx] & LOWRES_COST_MASK;
@@ -1190,7 +1190,7 @@ int FrameEncoder::calcQpForCu(uint32_t ctuAddr, double baseQp)
     return x265_clip3(QP_MIN, QP_MAX_MAX, (int)(qp + 0.5));
 }
 
-#if FIX_COST_BUG
+#if FIX_CTU_COST_BUG
 void FrameEncoder::calcCTUCost(uint32_t ctuAddr) {
   x265_emms();
 
