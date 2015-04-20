@@ -34,6 +34,7 @@
 #define FIX_INTRACOST_BUG 1
 #define FIX_QP_CALC_BUG 1
 #define FIX_COSTEST_BUG 1
+#define FIX_BREF_BUG 1
 #define OUTPUT_RC_STAT 1
 namespace x265 {
 // private namespace

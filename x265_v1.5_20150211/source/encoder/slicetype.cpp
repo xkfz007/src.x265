@@ -612,7 +612,11 @@ void Lookahead::vbvLookahead(Lowres **frames, int numFrames, int keyframe)
                     satdCost = vbvFrameCost(frames, nextBRef, curNonB, i);
             }
             else
+#if !FIX_BREF_BUG
                 satdCost = vbvFrameCost(frames, prevNonB, nextNonB, i);
+#else
+                satdCost = vbvFrameCost(frames, prevNonB, curNonB, i);
+#endif
             frames[nextNonB]->plannedSatd[idx] = satdCost;
             frames[nextNonB]->plannedType[idx] = type;
             /* Save the nextB Cost in each B frame of the current miniGop */
@@ -1340,11 +1344,11 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         m_curp1 = p1;
         m_curframes = frames;
 #if FIX_COSTEST_BUG
-    if(!fenc->bIntraCalculated) {
-      fenc->costEst[0][0] = 0;
-      fenc->costEstAq[0][0] = 0;
-    }
-    fenc->intraMbs[b - p0] = 0;
+        if(!fenc->bIntraCalculated) {
+            fenc->costEst[0][0] = 0;
+            fenc->costEstAq[0][0] = 0;
+        }
+        fenc->intraMbs[b - p0] = 0;
 #endif
         fenc->costEst[b - p0][p1 - b] = 0;
         fenc->costEstAq[b - p0][p1 - b] = 0;
@@ -1396,7 +1400,7 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
         }
 
         fenc->bIntraCalculated = true;
-#if !FIX_COSTEST_BUG
+#if FIX_COSTEST_BUG
         score = fenc->costEst[b - p0][p1 - b];
 #endif
         if (b != p1)
