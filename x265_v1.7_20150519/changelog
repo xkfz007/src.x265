@@ -1,0 +1,6 @@
+some changes from v1.6:
+1. rc: fix cost issues in predicting row size during mid frame vbv encodes.
+   maybe the bug in v1.6 "FIX_CTU_COST_BUG"
+2. support the CU qp, not only CTU qp
+3. Improvement of CU inter cost calculatin in slicetype_mb_cost
+4. add new SEI info mastering display and Maximum content light level
