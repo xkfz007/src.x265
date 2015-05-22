@@ -4,3 +4,4 @@ some changes from v1.6:
 2. support the CU qp, not only CTU qp
 3. Improvement of CU inter cost calculatin in slicetype_mb_cost
 4. add new SEI info mastering display and Maximum content light level
+5. predictRowsSizeSum is improved, much more precise calculatin of intra cu cost
