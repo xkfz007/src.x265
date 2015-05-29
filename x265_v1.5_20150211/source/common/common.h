@@ -154,10 +154,18 @@ typedef int32_t  ssum2_t;      //Signed sum
 
 #define QP_MIN          0
 #define QP_MAX_SPEC     51 /* max allowed signaled QP in HEVC */
+#if KEEP_AS265_SAME_WITH_X265
+#define QP_MAX_MAX      51
+#else
 #define QP_MAX_MAX      69 /* max allowed QP to be output by rate control */
+#endif
 
 #define MIN_QPSCALE     0.21249999999999999
+#if KEEP_AS265_SAME_WITH_X265
+#define MAX_MAX_QPSCALE 76.933217793096375
+#else
 #define MAX_MAX_QPSCALE 615.46574234477100
+#endif
 
 #define BITS_FOR_POC 8
 

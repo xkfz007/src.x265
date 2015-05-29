@@ -29,13 +29,59 @@
 #include "picyuv.h"
 #include "mv.h"
 
+#define KEEP_AS265_SAME_WITH_X265 1
+
+//frame cost calculation related macros
+#ifdef _DEBUG
+#define GET_FILENAME(x) #x"_dbg.txt"
+#elif NDEBUG
+#define GET_FILENAME(x) #x"_rls.txt"
+#endif
+#define DEBUG_FRAME_COST_OUTPUT 1
+#define DEBUG_PIXEL_INFO 1
+#define DEBUG_CU_INFO 1
+#define DEBUG_CU_COST_OUTPUT 1
+#define DEBUG_INTRA_PREDICT 1
+#define DEBUG_ME_COST 1
+#define DEBUG_COST_EST 1
+
+//rate control output related macros
+#define OUTPUT_FRAME_MB_BITS 1
+#define POC_FORMAT "%5d"
+#define MB_FORMAT "%7d"
+#define FRM_FORMAT "%10lld\n"
+#define FLOAT_FORMAT "%.19f"
+
+#define DEBUG_RC_WHOLE_PROCESS_ABR 1
+#define DEBUG_MBTREE_PROCESS 1
+#define DEBUG_AQ_PROCESS 1
+#define DEBUG_VBV_LOOKAHEAD 1
+#define DEBUG_2PASS_WHOLE_PROCESS 1
+
+//#define DEBUG_FRMCOST_RECALC 0
+//#define DEBUG_FRMCOST_RECALC_REAL 0
+//#define DEBUG_B_FRAME_ADAPTIVE 0
+
+#define USE_ALL_INTRA 1
+#define REENCODE_CTU 0
+
 //bug fixed
 #define FIX_CTU_COST_BUG 1
 #define FIX_INTRACOST_BUG 1
 #define FIX_QP_CALC_BUG 1
 #define FIX_COSTEST_BUG 1
 #define FIX_BREF_BUG 1
-#define OUTPUT_RC_STAT 1
+#define FIX_ROWDIAGQP_BUG 1
+
+//RC features
+#define AMORTIZE_IFRAME 0
+#define ABR_RESET 0
+#define IMPROVEMENT_OF_VBV 0
+#define IMPROVE_FRAME_PLANNING 0
+
+#define OUTPUT_RC_STAT 0
+
+
 namespace x265 {
 // private namespace
 

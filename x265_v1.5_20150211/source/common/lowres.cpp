@@ -159,6 +159,10 @@ void Lowres::init(PicYuv *origPic, int poc, int type)
     for (int i = 0; i < bframes + 2; i++)
         intraMbs[i] = 0;
 
+#if KEEP_AS265_SAME_WITH_X265
+  memset(plannedType, 0, sizeof(plannedType));
+  memset(plannedSatd, 0, sizeof(plannedSatd));
+#endif
     /* downscale and generate 4 hpel planes for lookahead */
     primitives.frameInitLowres(origPic->m_picOrg[0],
                                       lowresPlane[0], lowresPlane[1], lowresPlane[2], lowresPlane[3],

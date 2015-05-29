@@ -290,7 +290,11 @@ protected:
     x265_zone* getZone();
     double getQScale(RateControlEntry *rce, double rateFactor);
     double rateEstimateQscale(Frame* pic, RateControlEntry *rce); // main logic for calculating QP based on ABR
-    void accumPQpUpdate();
+    void accumPQpUpdate(
+#if KEEP_AS265_SAME_WITH_X265
+        double
+#endif
+      );
     uint32_t acEnergyCu(Frame* pic, uint32_t block_x, uint32_t block_y);
 
     void updateVbv(int64_t bits, RateControlEntry* rce);
