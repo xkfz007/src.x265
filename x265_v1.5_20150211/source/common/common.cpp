@@ -128,6 +128,7 @@ void x265_log(const x265_param *param, int level, const char *fmt, ...)
     va_start(arg, fmt);
     vfprintf(stderr, fmt, arg);
     va_end(arg);
+    fflush(stderr);
 }
 
 double x265_ssim2dB(double ssim)
