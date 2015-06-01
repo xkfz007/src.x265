@@ -28,6 +28,7 @@
 
 #include "common.h"
 #include "sei.h"
+#include "lowres.h"
 
 namespace x265 {
 // encoder namespace

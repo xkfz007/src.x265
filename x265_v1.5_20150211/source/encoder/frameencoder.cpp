@@ -808,6 +808,7 @@ void FrameEncoder::processRowEncoder(int intRow, ThreadLocalData& tld)
             curEncData.m_cuStat[cuAddr].baseQp = curEncData.m_avgQpRc;
 
 #if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265
+        if(bIsVbv)
       {
         FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
         fprintf(fp, "POC%3dCTU=(%d,%d) diagQP="FLOAT_FORMAT" baseQP="FLOAT_FORMAT" m_avgQpRC="FLOAT_FORMAT"\n"

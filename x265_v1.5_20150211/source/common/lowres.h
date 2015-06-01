@@ -29,7 +29,6 @@
 #include "picyuv.h"
 #include "mv.h"
 
-#define KEEP_AS265_SAME_WITH_X265 1
 
 //frame cost calculation related macros
 #ifdef _DEBUG
@@ -38,12 +37,12 @@
 #define GET_FILENAME(x) #x"_rls.txt"
 #endif
 #define DEBUG_FRAME_COST_OUTPUT 1
-#define DEBUG_PIXEL_INFO 1
-#define DEBUG_CU_INFO 1
-#define DEBUG_CU_COST_OUTPUT 1
-#define DEBUG_INTRA_PREDICT 1
-#define DEBUG_ME_COST 1
-#define DEBUG_COST_EST 1
+#define DEBUG_PIXEL_INFO 0
+#define DEBUG_CU_INFO 0
+#define DEBUG_CU_COST_OUTPUT 0
+#define DEBUG_INTRA_PREDICT 0
+#define DEBUG_ME_COST 0
+#define DEBUG_COST_EST 0
 
 //rate control output related macros
 #define OUTPUT_FRAME_MB_BITS 1

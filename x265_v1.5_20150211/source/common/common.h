@@ -40,6 +40,7 @@
 #include <assert.h>
 
 #include "x265.h"
+#define KEEP_AS265_SAME_WITH_X265 1
 
 #if ENABLE_PPA && ENABLE_VTUNE
 #error "PPA and VTUNE cannot both be enabled. Disable one of them."
