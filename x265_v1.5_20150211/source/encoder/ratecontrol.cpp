@@ -151,7 +151,7 @@ static inline uint32_t acEnergyVar(Frame *curFrame, uint64_t sum_ssd, int shift,
     uint32_t sum = (uint32_t)sum_ssd;
     uint32_t ssd = (uint32_t)(sum_ssd >> 32);
 
-#if DEBUG_AQ_PROCESS&&KEEP_AS265_SAME_WITH_X265
+#if 0//DEBUG_AQ_PROCESS&&KEEP_AS265_SAME_WITH_X265
   {
     FILE* fp = fopen(GET_FILENAME(DEBUG_AQ_PROCESS), "a");
     fprintf(fp, "sum=%d ssd=%d shift=%d\n", sum, ssd, shift);
@@ -306,7 +306,7 @@ void RateControl::calcAdaptiveQuantFrame(Frame *curFrame)
                 else
                 {
                     energy = acEnergyCu(curFrame, block_x, block_y);
-                    qp_adj = strength * (X265_LOG2(X265_MAX(energy, 1)) - (14.427f + 2 * (X265_DEPTH - 8)));
+                    qp_adj = strength * (X265_LOG2(X265_MAX(energy, 1)) - (14.427 + 2 * (X265_DEPTH - 8)));
                 }
                 curFrame->m_lowres.qpAqOffset[block_xy] = qp_adj;
                 curFrame->m_lowres.qpCuTreeOffset[block_xy] = qp_adj;
@@ -1529,7 +1529,7 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
     fprintf(fp,"START:%d[%d %d %d "FLOAT_FORMAT" "FLOAT_FORMAT" "FLOAT_FORMAT" %d "
         FLOAT_FORMAT" "FLOAT_FORMAT" "FLOAT_FORMAT" "FLOAT_FORMAT" %d]\n"
         ,rce->poc
-  ,rce->coeffBits,rce->mvBits ,rce->miscBits ,rce->iCuCount ,rce->pCuCount,rce->skipCuCount ,rce->keptAsRef
+  ,rce->coeffBits,rce->mvBits ,rce->miscBits ,rce->iCuCount ,rce->pCuCount,rce->skipCuCount ,(int)rce->keptAsRef
   ,rce->qScale ,rce->newQScale ,rce->expectedVbv ,rce->blurredComplexity ,rce->sliceType
   );
     fclose(fp);
@@ -3133,7 +3133,7 @@ int RateControl::rowDiagonalVbvRateControl(Frame* curFrame, uint32_t row, RateCo
         if (qpVbv > qpMax && prevRowQp < qpMax && canReencodeRow)
         {
             /* Bump QP to halfway in between... close enough. */
-            qpVbv = x265_clip3(prevRowQp + 1.0f, qpMax, (prevRowQp + qpVbv) * 0.5);
+            qpVbv = x265_clip3(prevRowQp + 1.0, qpMax, (prevRowQp + qpVbv) * 0.5);
             return -1;
         }
 
