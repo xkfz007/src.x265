@@ -36,7 +36,7 @@
 #elif NDEBUG
 #define GET_FILENAME(x) #x"_rls.txt"
 #endif
-#define DEBUG_FRAME_COST_OUTPUT 1
+#define DEBUG_FRAME_COST_OUTPUT 0
 #define DEBUG_PIXEL_INFO 0
 #define DEBUG_CU_INFO 0
 #define DEBUG_CU_COST_OUTPUT 0
@@ -51,7 +51,8 @@
 #define FRM_FORMAT "%10lld\n"
 #define FLOAT_FORMAT "%.19f"
 
-#define DEBUG_RC_WHOLE_PROCESS_ABR 1
+#define DEBUG_RC_WHOLE_PROCESS_ABR 0
+#define DEBUG_CTU_INFO 0
 #define DEBUG_MBTREE_PROCESS 1
 #define DEBUG_AQ_PROCESS 1
 #define DEBUG_VBV_LOOKAHEAD 1

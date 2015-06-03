@@ -337,6 +337,15 @@ void Encoder::destroy()
 
 void Encoder::updateVbvPlan(RateControl* rc)
 {
+#if DEBUG_2PASS_WHOLE_PROCESS
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_2PASS_WHOLE_PROCESS), "a");
+    fprintf(fp, "START:buffer_fill="FLOAT_FORMAT"\n", rc->m_bufferFill);
+    fprintf(fp, "START:m_bufferRate="FLOAT_FORMAT" m_vbvMaxRate="FLOAT_FORMAT" m_bufferSize="FLOAT_FORMAT" m_bufferFillFinal="FLOAT_FORMAT"\n",
+              rc->m_bufferRate, rc->m_vbvMaxRate, rc->m_bufferSize, rc->m_bufferFillFinal);
+    fclose(fp);
+  }
+#endif
     for (int i = 0; i < m_param->frameNumThreads; i++)
     {
         FrameEncoder *encoder = &m_frameEncoder[i];

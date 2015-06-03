@@ -540,6 +540,13 @@ RateControl::RateControl(x265_param *p)
     m_cutreeStatFileOut = m_cutreeStatFileIn = NULL;
     m_rce2Pass = NULL;
 
+#if DEBUG_RC_WHOLE_PROCESS_ABR
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
+    fprintf(fp, "fps=%d duration="FLOAT_FORMAT"\n",m_param->fpsNum/m_param->fpsDenom,m_frameDuration);
+    fclose(fp);
+  }
+#endif
     // vbv initialization
     m_param->rc.vbvBufferSize = x265_clip3(0, 2000000, m_param->rc.vbvBufferSize);
     m_param->rc.vbvMaxBitrate = x265_clip3(0, 2000000, m_param->rc.vbvMaxBitrate);
@@ -1517,7 +1524,8 @@ int RateControl::rateControlStart(Frame* curFrame, RateControlEntry* rce, Encode
 #if DEBUG_2PASS_WHOLE_PROCESS
   {
     FILE* fp = fopen(GET_FILENAME(DEBUG_2PASS_WHOLE_PROCESS), "a");
-    fprintf(fp,"expectedBits=%d\n",rce->expectedBits);
+    fprintf(fp,"START:expectedBits=%d m_bufferRate="FLOAT_FORMAT" m_bufferFill="FLOAT_FORMAT"\n",
+        rce->expectedBits,m_bufferRate,m_bufferFill);
     fprintf(fp,"START:%d[%d %d %d "FLOAT_FORMAT" "FLOAT_FORMAT" "FLOAT_FORMAT" %d "
         FLOAT_FORMAT" "FLOAT_FORMAT" "FLOAT_FORMAT" "FLOAT_FORMAT" %d]\n"
         ,rce->poc
@@ -2147,7 +2155,7 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
 #if DEBUG_2PASS_WHOLE_PROCESS
   {
     FILE* fp = fopen(GET_FILENAME(DEBUG_2PASS_WHOLE_PROCESS), "a");
-    fprintf(fp,"START:q="FLOAT_FORMAT" m_predictedBits="FLOAT_FORMAT" abr_buffer="FLOAT_FORMAT" expected_bits="FLOAT_FORMAT"\n"
+    fprintf(fp,"START:q="FLOAT_FORMAT" m_predictedBits=%d abr_buffer="FLOAT_FORMAT" expected_bits=%d\n"
         ,rce->newQScale,m_predictedBits,abrBuffer,rce->expectedBits );
     fclose(fp);
   }
@@ -2158,8 +2166,8 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
 #if DEBUG_2PASS_WHOLE_PROCESS
   {
     FILE* fp = fopen(GET_FILENAME(DEBUG_2PASS_WHOLE_PROCESS), "a");
-    fprintf(fp,"START:q="FLOAT_FORMAT" diff="FLOAT_FORMAT"\n"
-        ,q,diff );
+    fprintf(fp,"START:new_qscale="FLOAT_FORMAT" q="FLOAT_FORMAT" diff=%d\n"
+        ,rce->newQScale ,q,diff );
     fclose(fp);
   }
 #endif
@@ -2189,6 +2197,16 @@ double RateControl::rateEstimateQscale(Frame* curFrame, RateControlEntry *rce)
                 double expectedFullness = rce->expectedVbv / m_bufferSize;
                 double qmax = q * (2 - expectedFullness);
                 double sizeConstraint = 1 + expectedFullness;
+#if DEBUG_2PASS_WHOLE_PROCESS
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_2PASS_WHOLE_PROCESS), "a");
+    fprintf(fp,"START:expected_size="FLOAT_FORMAT" m_bufferRate="FLOAT_FORMAT" m_bufferFill="FLOAT_FORMAT"\n"
+        ,expectedSize,m_bufferRate,m_bufferFill);
+    fprintf(fp,"START:expected_vbv="FLOAT_FORMAT" qmax="FLOAT_FORMAT" rce->expected_vbv="FLOAT_FORMAT"\n"
+        ,expectedVbv,qmax,rce->expectedVbv);
+    fclose(fp);
+  }
+#endif
                 qmax = X265_MAX(qmax, rce->newQScale);
                 if (expectedFullness < .05)
                     qmax = MAX_MAX_QPSCALE;
@@ -2535,7 +2553,7 @@ void RateControl::updateVbvPlan(Encoder* enc)
 #endif
     enc->updateVbvPlan(this);
 
-#if DEBUG_RC_WHOLE_PROCESS_ABR
+#if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265
   {
     FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
     fprintf(fp, "update_vbv_plan(after ):poc=%lld buffer_fill="FLOAT_FORMAT"\n", m_curSlice->m_poc, m_bufferFill);
@@ -2843,7 +2861,7 @@ double RateControl::predictRowsSizeSum(Frame* curFrame, RateControlEntry* rce, d
                     refRowBits += refEncData.m_cuStat[cuAddr].totalBits;
                     intraCost += curEncData.m_cuStat[cuAddr].intraVbvCost;
 
-#if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265
+#if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265&&DEBUG_CTU_INFO
                     {
                       FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
                       fprintf(fp, "cuAddr=%d refRowSatdCost=%d(%d) refRowBits=%d(%d) intraCost=%d(%d)\n"

@@ -807,7 +807,7 @@ void FrameEncoder::processRowEncoder(int intRow, ThreadLocalData& tld)
         else
             curEncData.m_cuStat[cuAddr].baseQp = curEncData.m_avgQpRc;
 
-#if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265
+#if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265&&DEBUG_CTU_INFO
         if(bIsVbv)
       {
         FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
@@ -892,7 +892,7 @@ void FrameEncoder::processRowEncoder(int intRow, ThreadLocalData& tld)
             curEncData.m_rowStat[row].sumQpRc       += curEncData.m_cuStat[cuAddr].baseQp;
             curEncData.m_rowStat[row].numEncodedCUs = cuAddr;
 
-#if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265
+#if DEBUG_RC_WHOLE_PROCESS_ABR&&KEEP_AS265_SAME_WITH_X265&&DEBUG_CTU_INFO
         {
           FILE* fp = fopen(GET_FILENAME(DEBUG_RC_WHOLE_PROCESS_ABR), "a");
           fprintf(fp, "POC%3dROW%2dCOL%2d:m_rowDiagSatd=%d(%d) m_rowDiagIntraSatd=%d(%d) m_rowEncodedBits=%d(%d) m_numEncodedCusPerRow=%d(%d) baseQp="FLOAT_FORMAT"\n"
