@@ -89,7 +89,7 @@ void x265_free(void *ptr)
  * qp to qscale. */
 int x265_exp2fix8(double x)
 {
-    int i = (int)(x * (-64.f / 6.f) + 512.5f);
+    int i = (int)(x * (-64.0 / 6.0) + 512.5f);
 
     if (i < 0) return 0;
     if (i > 1023) return 0xffff;

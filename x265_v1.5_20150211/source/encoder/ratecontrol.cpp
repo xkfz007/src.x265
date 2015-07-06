@@ -456,13 +456,22 @@ RateControl::RateControl(x265_param *p)
   {
     static int kk = 0;
     if(kk == 0) {
-      FILE* fp, *fp2;
+      FILE* fp;
       fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "w");
-      fp2 = fopen(GET_FILENAME(DEBUG_AQ_PROCESS), "w");
       kk = 1;
       fclose(fp);
-      fclose(fp2);
     }
+  }
+#endif
+#if (DEBUG_AQ_PROCESS||DEBUG_MBTREE_PROCESS)&&KEEP_AS265_SAME_WITH_X265
+  {
+      static int kk = 0;
+      if(kk == 0) {
+          FILE* fp, *fp2;
+          fp2 = fopen(GET_FILENAME(DEBUG_AQ_PROCESS), "w");
+          kk = 1;
+          fclose(fp2);
+      }
   }
 #endif
     if (m_param->rc.cuTree)
@@ -1881,6 +1890,15 @@ bool RateControl::cuTreeReadFor2Pass(Frame* frame)
             frame->m_lowres.qpCuTreeOffset[i] = (double)(qpFix8) / 256.0;
             frame->m_lowres.invQscaleFactor[i] = x265_exp2fix8(frame->m_lowres.qpCuTreeOffset[i]);
         }
+#if DEBUG_MBTREE_PROCESS
+  {
+    FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+    for(int i = 0; i < m_ncu; i++){
+    fprintf(fp,"%d:qp_offset="FLOAT_FORMAT" invqf=%d(%d)\n",i,frame->m_lowres.qpCuTreeOffset[i],frame->m_lowres.invQscaleFactor[i],x265_exp2fix8(frame->m_lowres.qpCuTreeOffset[i]));
+    }
+    fclose(fp);
+  }
+#endif
         m_cuTreeStats.qpBufPos--;
     }
     else

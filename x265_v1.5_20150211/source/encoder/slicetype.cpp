@@ -1771,6 +1771,7 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
 #if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
   {
     FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+    fprintf(pf, "Frame cost(%lld): cost_est=%d(%d) cost_est_aq=%d(%d)\n", fenc->costEst[b - p0][p1 - b], fenc->costEst[0][0], fenc->costEstAq[b - p0][p1 - b], fenc->costEstAq[0][0]);
     fprintf(pf, "Frame cost(%lld): %d intra_mbs=%d nmb=%d\n", fenc->frameNum, score, fenc->intraMbs[b - p0], NUM_CUS);
     fclose(pf);
   }
@@ -2332,18 +2333,20 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
         if (bFrameScoreCU)
         {
             m_costIntra += icost;
-#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
-      {
-        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
-        fprintf(pf, "output_intra[COST_EST]=%d\n", icost);
-        fclose(pf);
-      }
-#endif
             if (fenc->invQscaleFactor)
             {
                 icostAq = (icost * fenc->invQscaleFactor[cuXY] + 128) >> 8;
                 m_costIntraAq += icostAq;
             }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "[%d,%d]output_intra[COST_EST]=%d [COST_EST_AQ]=%d\n",cux,cuy,icost,icostAq);
+        if (fenc->invQscaleFactor)
+            fprintf(pf, "\tinvqf=%d bcost=%d\n",fenc->invQscaleFactor[cuXY],icost);
+        fclose(pf);
+      }
+#endif
         }
         fenc->rowSatds[0][0][cuy] += icostAq;
     }
@@ -2383,18 +2386,20 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
         if (bFrameScoreCU)
         {
             m_costEst += bcost;
-#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
-      {
-        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
-        fprintf(pf, "output_inter[COST_EST]=%d\n", bcost);
-        fclose(pf);
-      }
-#endif
             if (fenc->invQscaleFactor)
             {
                 bcostAq = (bcost * fenc->invQscaleFactor[cuXY] + 128) >> 8;
                 m_costEstAq += bcostAq;
             }
+#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
+      {
+        FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
+        fprintf(pf, "[%d,%d]output_inter[COST_EST]=%d [COST_EST_AQ]=%d\n",cux,cuy,bcost,bcostAq);
+        if (fenc->invQscaleFactor)
+            fprintf(pf, "\tinvqf=%d bcost=%d\n",fenc->invQscaleFactor[cuXY],bcost);
+        fclose(pf);
+      }
+#endif
         }
         fenc->rowSatds[b - p0][p1 - b][cuy] += bcostAq;
     }
