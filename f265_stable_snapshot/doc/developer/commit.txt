@@ -1,0 +1,25 @@
+This document describes the commit guidelines.
+
+
+* Committing on Git.
+
+We use Git for source control. The "master" branch has the latest stable
+release. The "develop" branch has the bleeding edge code. Changes go in
+the develop branch first.
+
+Do not merge branches. Instead, rebase your topic branch on top of the develop
+branch. It doesn't matter whether you create several small commits or one large
+commit. However, remove junk commits and describe all the changes in the commit
+message. We want a clean linear history.
+
+Make sure the regression suite passes prior to pushing your changes.
+
+
+* Resources.
+
+Git book, http://git-scm.com/book
+
+Rebase workflow, http://mettadore.com/analysis/a-simple-git-rebase-workflow-explained
+
+Git commit message format, http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
+

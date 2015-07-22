@@ -1,0 +1,323 @@
+-------------------------------------------------------------------------------
+Command line usage:
+
+f265cli [-w WIDTH:HEIGHT] [-c NB_FRAMES] [-p "PARAMS"] INPUT OUTPUT
+
+WIDTH,HEIGHT is the frame size when the input is a YUV file.
+
+NB_FRAMES is the number of frames to encode. Do not specify or set to 0 to
+encode the whole stream.
+
+PARAMS is the list of encoding parameters. All the parameters are passed as a
+single string to the encoder. The syntax is as follow:
+
+    param1:value1,value2;param2:value3
+
+Spaces/equal signs can be used instead of semicolons/colons. For this reason,
+do not insert spaces between the parameter names and their values. The value
+'none' can be used to represent an empty list when a parameter accepts a list
+of strings.
+
+INPUT is the path to an input 4:2:0 YUV file with the extension '.yuv', or a
+file decodable by ffmpeg.
+
+OUTPUT is the path to the output bitstream.
+
+Note that some systems (Windows, OSX) require the options to be placed before
+the non-options arguments (to be fixed eventually).
+
+
+-------------------------------------------------------------------------------
+Encoding parameters:
+
+WARNING: the default values listed here are currently bypassed if no parameter
+is specified. For now we apply quality=25 on top of these defaults, overriding
+them. This will be fixed once the project stabilizes and the quality settings
+stop changing so frequently. It is recommended to specify the quality setting
+explicitly (e.g. quality=25) to avoid inconsistent behaviors.
+
+
+* format=[byte]. Default to byte. Other values are unsupported.
+
+Output format. Set to 'byte' if the output is a raw H.265 stream.
+
+
+* chroma-format=X. Default to 1. Other values are unsupported.
+
+Chroma format (0 => 4:0:0, 1 => 4:2:0, 2 => 4:2:2, 3 => 4:4:4).
+
+
+* bit-depth=W,X,Y,Z. Default to 8,8,8,8. Other values are unsupported.
+
+Bit depth for luma/chroma/PCM luma/PCM chroma (8..14). The luma bit depth
+cannot be below the chroma bit depth.
+
+
+* cb-range=X,Y. Default to 3,6.
+
+Coding block minimum/maximum log size (3..6). 3=>8x8, 4=>16x16, 5=>32x32,
+6=>64x64. The maximum size (value Y) is the size of the CTB.
+
+
+* pcm-range=X,Y. Default to 3,5. Unimplemented.
+
+PCM minimum/maximum log size (3..5, -1: disabled).
+
+
+* tb-range=X,Y. Default to 2,5.
+
+Transform block minimum/maximum log size (2..5). 2=>4x4, 3=>8x8, 4=>16x16,
+5=>32x32. The minimum TB size must be below the minimum CB size. The maximum TB
+size must be less or equal to the maximum CB size.
+
+
+* tb-depth=X,Y. Default to 4,4.
+
+Maximum transform depth for intra/inter (0..4). The following condition must
+hold: MaxCbSize + MaxTbDepth >= MinTbSize. In other words, the values are
+capped to the difference between the maximum and the minimum transform block
+sizes.
+
+HM compatibility: add one to the values above to get the equivalent HM values.
+
+
+* qg=X. Default to -1. Unimplemented.
+
+Quantization group log size (3..6, -1: disabled). This is the minimum size of a
+block that can have an independent QP.
+
+
+* ref=X. Default to 1.
+
+Number of frames kept as reference (0..16).
+
+
+* bframes=X. Default to 0.
+
+Number of B frames (0..16).
+
+HM compatibility: set to the HM GOP size minus 1, regardless of the frame types
+in the GOP.
+
+
+* wpp=X. Default to 0.
+
+Enable wavefront parallel processing to allow multi-threaded decoding.
+
+
+* deblock=X. Default 1.
+
+Enable the deblocking filter.
+
+
+* sao=X. Default to 0. Unimplemented.
+
+Enable the sample adaptive offset filter.
+
+
+* scaling=X. Default to 0. Unimplemented.
+
+Use scaling lists.
+
+
+* fpel=Algo,Iter,Dist. Default to hex,16,sad.
+* hpel=Algo,Iter,Dist. Default to xdia,1,sad.
+* qpel=Algo,Iter,Dist. Default to xdia,1,satd.
+
+Determine the fpel search parameter.
+Algo is the search algorithm. Can be either 'dia', 'xdia' or 'hex'.
+Iter is the number of iterations the algo does. Is clipped between 0 and 16.
+Dist is the distortion function. Can be either 'sad' or 'satd'.
+
+
+* transquant-bypass=X. Default to 0. Unimplemented.
+
+Enable transform/quantization bypass. FIXME: do we want a separate 'lossless'
+parameter?
+
+
+* rdoq=X. Default to 0.
+
+Enable rate-distortion optimization during quantization.
+
+
+* sign-hiding=X. Default to 0.
+
+Enable sign-hiding optimization during quantization.
+Only supported when rdoq=1.
+
+
+* transform-skip. Default to 0. Unimplemented.
+
+Enable transform-skip optimization during encoding.
+
+
+* smooth-intra=X. Default to 1.
+
+Use strong intra smoothing for 32x32 transform blocks.
+
+
+* amp=X. Default to 0.
+
+Use asymmetric motion partitions.
+
+
+* tmv=X. Default to 1.
+
+Use temporal motion vector predictors.
+
+
+* nb-merge=X. Default to 5.
+
+Number of merge candidates (1..5).
+
+
+* pml=X. Default to 2.
+
+Parallel merge level (2..6). Support will probably be removed in the future. It
+seems only useful for hardware.
+
+
+* weight=X. Default to 0. Unimplemented.
+
+Use weighted prediction.
+
+
+* chroma-me=X. Default to 0.
+
+Consider the chroma components during motion estimation (and intra).
+
+
+* quality=X. No default yet.
+
+Tweak the quality settings for the desired quality/performance ratio. quality=0
+maximises the number of frames per second, quality=100 maximizes the video
+quality.
+
+Parameters appearing after the 'quality' parameter override the values set by
+the 'quality' parameter.
+
+
+* rdo=X. Default to 0.
+
+Enable rate-distortion optimization. This trades a lot of performance for a lot
+of quality.
+
+
+* hm-me=X. Default to 0.
+
+Use HM-compatible motion estimation (for debugging purposes).
+
+
+* all-intra=X. Default to 0.
+
+Test all intra modes.
+
+
+* nullify-inter-tb=X. Default to 0.
+
+Try zeroing each inter transform block for a small quality gain.
+
+
+* qp=X. Default to 30.
+
+Enable constant-QP rate control with the specified quantization parameter
+value.
+
+
+* key-frame-spacing=X. Default to 120.
+
+Interval between two key frames. A value of one means every frame is a key
+frame.
+
+
+* key-frame-type=X. Default to 0.
+
+Key frame type (0 => CRA, 1 => IDR).
+
+
+* yuv-dump=path. Default to none.
+
+Dump the YUV reconstruction of the video stream in the file specified. This
+happens after deblocking/SAO.
+
+
+* hm-gop=path. Default to none.
+
+Import the GOP structure from an HM configuration file. Only the GOP section
+lines actually need to be present (i.e. the lines beginning with Frame1,
+Frame2, ...).
+
+Mind the bframes parameter value when you use this.
+
+
+* rc=method. Default "cqp".
+
+Set the rate control method.
+
+Accepted values:
+- "cqp": constant qp.
+- "abr": average bitrate.
+
+
+* bitrate=TARGET. Default 500.
+
+Set the target bitrate in kilobits (base 1000) per second.
+
+
+* bitrate-range=MIN,MAX. Default 0,0.
+
+Set the bitrate range (min/max).
+
+
+* qp-bounds=MIN,MAX. Default 0,51.
+
+Set the QP bounds.
+
+
+* fps=NUM,DEN. Default=30,1.
+
+Set the frame rate numerator and denominator.
+
+
+* lt-conv-min=X. Default 10.
+
+Minimum number of frames used to compute the ABR rate control convergence window.
+
+
+* lt-conf-exp=X. Default 0.6.
+
+Exponent used to compute the ABR rate control convergence window.
+
+
+-------------------------------------------------------------------------------
+Configurations and regression tests.
+
+NOTE: the following is legacy development information.
+
+The development version of f265 is in the 'develop' branch in the f265 Git
+repository. The Vantrix-modified version of HM is in the 'vantrix' branch in
+the HM Git repository.
+
+The f265 encoder is configured through the command line parameters and the
+f265_repo/f265/van_cfg.h file. The HM encoder is configured through the command
+line parameters, the configuration files in hm_repo/vancfg/, and the
+hm_repo/source/Lib/TLibCommon/van_cfg.h file.
+
+The van_cfg.h files enable various debugging modes and compatibility hacks
+between HM and f265. The #defines switches are commented out by default to get
+the normal behavior.
+
+HM provides the reference bitstream we use for debugging our code. f265 can
+produce a bit-exact bitstream with HM by setting the correct switches in both
+van_cfg.h files.
+
+THE FOLLOWING SWITCHES *MUST ALWAYS BE SET* IN HM'S van_cfg.h:
+
+#define VAN_FORCE_NO_EARLY_TERM
+#define VAN_FORCE_NO_RPS_SET
+#define VAN_FORCE_NO_CABAC_INIT
+#define VAN_FORCE_NO_MVD_L1_ZERO_FLAG
+#define VAN_FORCE_NO_INTER_HV_PART
+#define VAN_FORCE_QUIET
+

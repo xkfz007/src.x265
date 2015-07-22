@@ -1,0 +1,102 @@
+VANTRIX CORPORATION f265.org CONTRIBUTOR LICENSE AGREEMENT v. 1.0
+
+These terms apply to your contribution of materials to the f265.org product or
+project pursuant to the BSD 2-CLAUSE LICENSE Agreement executed on the date
+hereof ("project"), and set out the intellectual property rights you grant to
+Vantrix Corporation ("we," "us" or "our") in the contributed materials. If any
+contribution is made on behalf of a company, the term "you" will also mean the
+company you identify below. If you agree to be bound by these terms, provide
+the information requested below along with the statement "I accept these terms"
+in the body of an email, attach the copy of these terms you received from us to
+that email, and send the email to us at f265@f265.org. You may also scan and
+email a signed copy of these terms with the information below filled-in to us
+at f265@f265.org.
+
+
+1. The term "contribution" means any source code, object code, patch, tool,
+sample, graphic, specification, manual, documentation, or any other content or
+material (1) ever posted or submitted by you to the project, or (2) owned by
+you and otherwise ever included in the project as of the date you agree to
+these terms.
+
+
+2. With respect to any worldwide copyrights, or copyright applications and
+registrations, in any contribution:
+
+- you hereby assign to us joint ownership, and to the extent that such
+  assignment is or becomes invalid, ineffective or unenforceable, you hereby
+  grant to us a perpetual, irrevocable, non-exclusive, worldwide, no-charge,
+  royalty-free, unrestricted license to exercise all rights under those
+  copyrights. This includes, at our option, the right to sublicense these same
+  rights to third parties through multiple levels of sublicensees or other
+  arrangements;
+
+- you agree that we can do all things in relation to any contribution as if we
+  were the sole owners, and if we make a derivative work of any contribution,
+  we will be the sole owner of that derivative work;
+
+- you agree that you will not assert any moral rights in any contribution
+  against us, our licensees or transferees;
+
+- you agree that we may register a copyright in any contribution and exercise
+  all ownership rights associated with it; and
+
+- you agree that we have no duty to consult with, obtain the consent of, pay or
+  render an accounting to you for any use or distribution of any contribution.
+
+
+3. With respect to any patents in a contribution that you own, or that you can
+license without payment to any third party, you hereby grant to us a perpetual,
+irrevocable, non-exclusive, worldwide, no-charge, royalty-free license to:
+
+- make, have made, use, sell, offer to sell, import, transfer and otherwise
+  practice any contribution in whole or in part, alone or in combination with
+  or included in the project or any product, work, or materials arising out of
+  the project; and
+
+- at our option, to sublicense these same rights to third parties through
+  multiple levels of sublicensees or other arrangements.
+
+
+4. Except as set out above, as between you and us, you keep all right, title,
+and interest in any contribution. The rights that you grant to us under these
+terms are effective on the date the contribution was first submitted to us,
+even if the submission took place before the date you agree to these terms. We
+will use commercially reasonable efforts to make any contribution we make
+available under any license also available under a license compatible with the
+BSD 2-Clause License.
+
+
+5. With respect to any contribution, you represent that:
+
+- it is an original work and that you can legally grant the rights set out in
+  these terms;
+
+- it does not to the best of your knowledge violate any third party's
+  copyrights, trademarks, trade secrets or other non-patent intellectual
+  property rights; and
+
+- you are authorized to sign this contract on behalf of your company (if
+  identified below).
+
+
+6. These terms will be governed by the laws of the province of Québec and the
+laws of Canada applicable therein. Any choice of law rules will not apply. All
+issues or disputes involving these terms will be brought in a court in the
+district of Montreal, and each party irrevocably submits to the jurisdiction
+and venue of those courts.
+
+
+Your contact information (please print clearly):
+- Your Name:
+- Your Company's Name (if applicable):
+- Mailing Address:
+- Telephone and Fax:
+- Email:
+
+You agree to be bound by these terms:
+- Your Name:
+- Your Signature*:
+  * If signing electronically, type "I accept these terms".
+- Date:
+

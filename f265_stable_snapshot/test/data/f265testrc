@@ -1,0 +1,56 @@
+# Local configuration data. All fields are mandatory unless specified.
+# Tip: do the following substitutions:
+#   COMP_DIR => directory containing your compilation scripts.
+#   VIDEO_DIR => directory containing your videos.
+#   WORK_DIR => directory containing the execution artifacts.
+#   F265_REPO => your f265 repository.
+#   HM_REPO => your HM repository.
+#   X264_REPO => your x264 repository.
+#   X265_REPO => your x265 repository.
+[config]
+
+# Command to compile f265. Argument 1 is '-c' to disable assembly support.
+f265_compile=COMP_DIR/f265_enc.sh
+
+# Command to compile HM. No argument accepted.
+hm_compile=COMP_DIR/hm_enc.sh
+
+# Path to the f265 van_cfg.h.
+f265_van_cfg=F265_REPO/f265/van_cfg.h
+
+# Path to the HM van_cfg.h.
+hm_van_cfg=HM_REPO/source/Lib/TLibCommon/van_cfg.h
+
+# Path to the video directory. Use symlinks if your videos are scattered around.
+video_dir=VIDEO_DIR
+
+# Path to the HM configuration directory. Use symlinks if your config files are
+# scattered around.
+hm_cfg_dir=HM_REPO/vancfg
+
+# Path to the work directory for running tests.
+work_dir=WORK_DIR
+
+# Path to the binaries. In the case of gstf265, the binary is interpreted as the
+# filter name. This can be overridden for each test. Optional.
+f265_binary=F265_REPO/build/f265cli
+hm_binary=HM_REPO/bin/TAppEncoderStatic
+gstf265_binary=
+x264_binary=X264_REPO/x264
+x265_binary=X265_REPO/x265
+
+# Path to yuvdiff.
+yuvdiff_binary=yuvdiff
+
+# Path to the HM decoder.
+hm_dec_binary=HM_REPO/bin/TAppDecoderStatic
+
+# Initial files processed (comma-separated list of files). Tests defined within
+# are ignored. Optional.
+init_files=videos
+
+
+# File aliases (name=path). f265test replaces those names by full paths.
+[aliases]
+videos=F265_REPO/test/data/videos.ini
+

@@ -1,0 +1,1641 @@
+#!/usr/bin/python
+
+# Copyright (c) 2014, VANTRIX CORPORATION. All rights reserved. See LICENSE.txt
+# for the full license text.
+
+
+#################
+### UTILITIES ###
+#################
+
+import os, sys, re, string, time, random, subprocess, errno, getopt, stat, tempfile, ConfigParser
+from subprocess import *
+
+try: import pyreadline as readline
+except ImportError: import readline
+
+# This class creates an object having the specified attributes.
+# Example: person = Namespace(name="Mickey", age=18)
+class Namespace(object):
+    def __init__(self, **kwds): self.__dict__ = kwds
+
+# This class creates an object in which it is possible to add fields
+# dynamically. Example: store = PropStore(); store.foo = "bar"
+class PropStore(object):
+
+    def __setattr__(self, name, value):
+        self.__dict__[name] = value
+
+    def __getattr__(self, name):
+        if not self.__dict__.has_key(name): raise AttributeError, name
+        return self.__dict__[name]
+
+    def __setitem__(self, name, value):
+        self.__dict__[name] = value
+
+    def __getitem__(self, name):
+        if not self.__dict__.has_key(name): raise KeyError, name
+        return self.__dict__[name]
+
+    def __delitem__(self, name):
+        del self.__dict__[name]
+
+    def has_key(self, name):
+        return self.__dict__.has_key(name)
+
+    def keys(self):
+        return self.__dict__.keys()
+
+    def values(self):
+        return self.__dict__.values()
+
+# This function returns true if the string specified is alphanumeric (a-z, 0-9,
+# '_'). This is a workaround for Python's unexpected implementation.
+def isalpha(s):
+    return s.replace('_', '').isalnum()
+
+# This function adds spaces to the string specified until the total length of
+# the string is at least 'min'.
+def fill_string(s, min):
+    while len(s) < min: s += ' '
+    return s
+
+# This function converts a string to hexadecimal. Function taken from the Python
+# Cookbook.
+def str_to_hex(s):
+    lst = []
+    for ch in s:
+        hv = hex(ord(ch)).replace('0x', '')
+        if len(hv) == 1:
+            hv = '0'+hv
+        lst.append(hv)
+
+    return reduce(lambda x,y:x+y, lst)
+
+# This function converts an hexadecimal number to a string.
+def hex_to_str(s):
+    return s and chr(string.atoi(s[:2], base=16)) + hex_to_str(s[2:]) or ''
+
+# This function generates a random string, suitable for a username or password.
+def gen_random(nb):
+    generator = random.SystemRandom()
+    s = ""
+
+    for i in range(nb):
+        s += generator.choice(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+                               'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+                               '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
+    return s
+
+# This function checks if the exception specified corresponds to EINTR or
+# EAGAIN. If not, the exception is raised.
+def check_interrupted_ex(e):
+    if e.args[0] != errno.EINTR and e.args[0] != errno.EAGAIN: raise e
+
+# This function is a wrapper around select.select() to give it sane semantics.
+def select_wrapper(rlist, wlist, xlist, timeout):
+    try: return select.select(rlist, wlist, xlist, timeout)
+    except select.error, e:
+        check_interrupted_ex(e)
+        return ([], [], [])
+
+# Read the content of the file specified.
+def read_file(path):
+    f = open(path)
+    data = f.read()
+    f.close()
+    return data
+
+# Write the content of the file specified.
+def write_file(path, data):
+    f = open(path, "wb")
+    f.write(data)
+    f.close()
+
+# This function writes the content of a file atomically by using a temporary
+# file. The permissions of the destination file are preserved by default,
+# otherwise the mode 644 is used.
+def write_file_atom(path, data, preserve_flag=1):
+
+    # Note that mkstemp creates the file with the mode 600.
+    (unix_fileno, tmp_path) = tempfile.mkstemp(dir=os.path.dirname(path))
+    tmp_file = os.fdopen(unix_fileno, "wb")
+    tmp_file.write(data)
+    tmp_file.close()
+
+    try:
+        if os.path.isfile(path):
+            dest_stat = os.stat(path)
+            os.chmod(tmp_path, stat.S_IMODE(dest_stat.st_mode))
+            os.chown(tmp_path, dest_stat.st_uid, dest_stat.st_gid)
+        else:
+            os.chmod(tmp_path, 0644)
+    except: pass
+
+    os.rename(tmp_path, path)
+
+# Move a file atomically and preserve the permissions and ownership information
+# of the destination file, if it exists, if requested (disabled by default) and
+# if possible.
+def move_file(src, dest, preserve_flag=0):
+    if preserve_flag and os.path.isfile(dest):
+        try:
+            dest_stat = os.stat(dest)
+            os.chmod(src, stat.S_IMODE(dest_stat.st_mode))
+            os.chown(src, dest_stat.st_uid, dest_stat.st_gid)
+        except: pass
+    os.rename(src, dest)
+
+# Create the directory specified if it does not exist.
+def create_dir(path):
+    if not os.path.isdir(path): get_cmd_output(["mkdir", "-p", path])
+
+# Delete the directory specified recursively.
+def delete_dir(path):
+    if os.path.isdir(path): get_cmd_output(["rm", "-rf", path])
+
+# Append a slash to the path specified if the path is not "" and it does not end
+# with a slash.
+def append_trailing_slash(path):
+    if path != "" and not path.endswith("/"): return path + "/"
+    return path
+
+# Remove any trailing slash from the path specified unless the path is '/'.
+def strip_trailing_slash(path):
+    if path != "/" and path.endswith("/"): return path[:-1]
+    return path
+
+# This function reads a ConfigParser object representing an INI file.
+def read_ini_file(path):
+    f = open(path, "rb")
+    parser = ConfigParser.ConfigParser(dict_type=OrderedDict)
+    parser.readfp(f)
+    f.close()
+    return parser
+
+# This function writes the content of a ConfigParser object into an INI file
+# atomically. The permissions of the destination file are preserved by default.
+def write_ini_file(path, parser, preserve_flag=1):
+    tmp_path = path + ".tmp"
+    tmp_file = open(tmp_path, "wb")
+    parser.write(tmp_file)
+    tmp_file.close()
+    move_file(tmp_path, path, preserve_flag)
+
+# This function filters the specified file with the specified list of (pattern,
+# replacement) pairs. If a pattern matches, the current line is replaced by the
+# associated replacement string. If the replacement string is 'None', the
+# current line is discarded. If no pattern matches the current line, the line is
+# added back as-is.
+def filter_generic_config_file(path, pair_list):
+    data = ""
+    f = open(path, "rb")
+
+    for line in f.readlines():
+        line = line.rstrip("\n")
+        matched_flag = 0
+
+        for pair in pair_list:
+            regex = re.compile(pair[0])
+            if regex.search(line):
+                matched_flag = 1
+                if pair[1] != None: data += regex.sub(pair[1], line) + "\n"
+                break
+
+        if not matched_flag:
+            data += line + "\n"
+
+    f.close()
+    write_file_atom(path, data)
+
+# This function returns an escaped and quoted shell argument.
+def escape_shell_arg(arg):
+    if type(arg) ==  None or arg == "":
+        return "\'\'"
+
+    arg = str(arg)
+    arg = arg.replace("\'", "\'\"\'\"\'")
+
+    return "\'" + arg + "\'"
+
+# Helper function for get_cmd_output() and show_cmd_output(). Join a list of
+# strings with whitespaces.
+def cmd_output_join_with_whitespace(l):
+    res = ""
+    for e in l:
+        if res != "": res += " "
+        res += e
+    return res
+
+# Helper function for get_cmd_output() and show_cmd_output(). Return a list of
+# strings or a single string depending on the value of 'shell_flag'.
+def cmd_output_adjust_arg_list(arg_list, shell_flag):
+    args = arg_list
+    if shell_flag and type(arg_list) == list: args = cmd_output_join_with_whitespace(arg_list)
+    elif not shell_flag and type(arg_list) == str: args = arg_list.split()
+    return args
+
+# This function executes the command specified and returns the standard output
+# of the command.
+#
+# By default, the function does not execute the command in the context of a
+# shell. This can be overriden by setting 'shell_flag' to true.
+#
+# The first argument expected by the function is a list of strings or a single
+# string. If a single string is provided and the command is not executed in the
+# context of a shell, the string is split at whitespaces to obtain the list of
+# arguments. Conversely, if a list of strings is provided and the command is
+# executed in the context of a shell, the list of strings is joined with
+# whitespaces.
+#
+# The 'err_behavior' value controls the behavior of the function when an error
+# occurs. If 'err_behavior' is set to 'brief', an exception is thrown containing
+# the error string generated by the command. If 'err_behavior' is set to 'full',
+# an exception is thrown containing both the text of the command and the error
+# string generated by the command. If 'err_behavior' is set to 'ignore', no
+# exception is thrown. By default, 'err_behavior' is set to 'brief'.
+#
+# If 'input_str' is non-null, it is written to the standard input of the
+# process.
+def get_cmd_output(arg_list, err_behavior="brief", shell_flag=0, input_str=None, append_err=0):
+    args = cmd_output_adjust_arg_list(arg_list, shell_flag)
+
+    try:
+        stdin = None
+        if input_str != None: stdin=PIPE
+        proc = Popen(args=args, stdin=stdin, stdout=PIPE, stderr=PIPE, shell=shell_flag)
+        (out_text, err_text) = proc.communicate(input_str)
+        # An error occurred.
+        if proc.returncode != 0 and err_behavior != "ignore":
+
+            # Strip the surrounding whitespaces and the trailing '.' of both
+            # streams.
+            out_text = out_text.strip().rstrip('.')
+            err_text = err_text.strip().rstrip('.')
+
+            # If err_text is empty, use out_text if not empty, otherwise use
+            # 'unknown error'.
+            if len(err_text): msg = err_text
+            elif len(out_text): msg = out_text
+            else: msg = 'unknown error'
+
+            raise Exception(msg)
+
+        if append_err: return out_text + err_text
+        return out_text
+
+    except Exception, e:
+
+        # We're ignoring errors and it seems the command could not be executed.
+        # Return an empty string.
+        if err_behavior == "ignore": return ""
+
+        err_msg = str(e)
+        if err_behavior == "full":
+            if type(args) == list: cmd_text = cmd_output_join_with_whitespace(args)
+            else: cmd_text = args
+            err_msg = "command '%s' failed: %s" % (cmd_text, err_msg)
+        raise Exception(err_msg)
+
+# This function is similar to get_cmd_output(), with the difference that the
+# output of the command (stdout, stderr) is not redirected. The function throws
+# an exception if the command fails if requested.
+def show_cmd_output(arg_list, ignore_error=0, shell_flag=0, input_str=None):
+    args = cmd_output_adjust_arg_list(arg_list, shell_flag)
+
+    if type(arg_list) == str: cmd_name = arg_list.split()[0]
+    else: cmd_name = arg_list[0]
+
+    try:
+        # Flush stdout and stderr since Python is buffering those streams and
+        # the Popen() call is going to write to those streams directly,
+        # resulting in out-of-order output when the streams are not redirected
+        # to a terminal.
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+        stdin = None
+        if input_str != None: stdin=PIPE
+        proc = Popen(args=args, stdin=stdin, shell=shell_flag)
+        proc.communicate(input_str)
+        if proc.returncode != 0 and not ignore_error: raise Exception("command " + cmd_name + " failed")
+
+    except Exception, e:
+        if not ignore_error: raise Exception("command " + cmd_name + " failed")
+
+# This class setups command completion in readline.
+class readline_completer:
+    def __init__(self, words):
+        self.words = words
+        self.prefix = None
+
+    def complete(self, prefix, index):
+        if prefix != self.prefix:
+            self.matching_words = [ w for w in self.words if w.startswith(prefix) ]
+            self.prefix = prefix
+        try:
+            return self.matching_words[index]
+        except IndexError:
+            return None
+
+# This function prompts the user for a confirmation (y/n). It returns true if
+# the confirmation was given. Note: I wrote this on a friday evening.
+def get_confirm(prompt):
+    try:
+        while 1:
+            res = raw_input(prompt + " ")
+            res = string.lower(res)
+
+            if (res == "yes" or res == "aye" or res == "sure" or res == "of course" or\
+                res == "go ahead" or res == "why not" or res == "yeah" or res == "y"): return 1
+            if (res == "no" or res == "nay" or res == "nah" or res == "never" or res == "n"): return 0
+
+            print "Please answer with 'y' or 'n'.\n"
+
+    except Exception:
+        print ""
+        raise KeyboardInterrupt
+
+# This function prompts the user for a string. It returns the string entered,
+# which can be "". The string is stripped of its surrounding whitespaces.
+def prompt_string(prompt):
+    try: return raw_input(prompt + " ").strip()
+    except Exception:
+        print ""
+        raise KeyboardInterrupt
+
+# Ordered dictionary.
+class odict(dict):
+    def __init__(self, data=None):
+        self._keys = []
+        dict.__init__(self)
+
+        if data:
+            # we were provided a regular dict
+            if isinstance(data, dict):
+                self.append_from_dict(data)
+
+            # we were provided a tuple list
+            elif type(data) == list:
+                self.append_from_plist(data)
+
+            # we were provided invalid input
+            else:
+                raise Exception("expected a dict or a tuple list")
+
+    def append_from_dict(self, dict):
+        map(self.__setitem__, dict.keys(), dict.values())
+
+    def append_from_plist(self, plist):
+        for pair in plist:
+            if len(pair) != 2:
+                raise Exception("invalid pairs list")
+        for (k, v) in plist:
+            self.__setitem__(k, v)
+
+    def __delitem__(self, key):
+        if not key in self._keys:
+            raise KeyError, key
+        dict.__delitem__(self, key)
+        self._keys.remove(key)
+
+    def __setitem__(self, key, item):
+        dict.__setitem__(self, key, item)
+        if key not in self._keys:
+            self._keys.append(key)
+
+    def clear(self):
+        dict.clear(self)
+        self._keys = []
+
+    def copy(self):
+        return odict(self.plist())
+
+    def items(self):
+        return zip(self._keys, self.values())
+
+    def keys(self):
+        return list(self._keys) # return a copy of the list
+
+    def values(self):
+        return map(self.get, self._keys)
+
+    def plist(self):
+        p = []
+        for k, v in self.items():
+            p.append( (k, v) )
+        return p
+
+    def __str__(self):
+        s = "{"
+        l = len(self._keys)
+        for k, v in self.items():
+            l -= 1
+            strkey = str(k)
+            if isinstance(k, basestring): strkey = "'"+strkey+"'"
+            strval = str(v)
+            if isinstance(v, basestring): strval = "'"+strval+"'"
+            s += strkey + ":" + strval
+            if l > 0: s += ", "
+        s += "}"
+        return s
+
+# Backport of OrderedDict() class that runs on Python 2.4, 2.5, 2.6, 2.7 and pypy.
+# Passes Python2.7's test suite and incorporates all the latest updates.
+
+try:
+    from thread import get_ident as _get_ident
+except ImportError:
+    from dummy_thread import get_ident as _get_ident
+
+try:
+    from _abcoll import KeysView, ValuesView, ItemsView
+except ImportError:
+    pass
+
+class OrderedDict(dict):
+    'Dictionary that remembers insertion order'
+    # An inherited dict maps keys to values.
+    # The inherited dict provides __getitem__, __len__, __contains__, and get.
+    # The remaining methods are order-aware.
+    # Big-O running times for all methods are the same as for regular dictionaries.
+
+    # The internal self.__map dictionary maps keys to links in a doubly linked list.
+    # The circular doubly linked list starts and ends with a sentinel element.
+    # The sentinel element never gets deleted (this simplifies the algorithm).
+    # Each link is stored as a list of length three:  [PREV, NEXT, KEY].
+
+    def __init__(self, *args, **kwds):
+        '''Initialize an ordered dictionary.  Signature is the same as for
+        regular dictionaries, but keyword arguments are not recommended
+        because their insertion order is arbitrary.
+
+        '''
+        if len(args) > 1:
+            raise TypeError('expected at most 1 arguments, got %d' % len(args))
+        try:
+            self.__root
+        except AttributeError:
+            self.__root = root = []                     # sentinel node
+            root[:] = [root, root, None]
+            self.__map = {}
+        self.__update(*args, **kwds)
+
+    def __setitem__(self, key, value, dict_setitem=dict.__setitem__):
+        'od.__setitem__(i, y) <==> od[i]=y'
+        # Setting a new item creates a new link which goes at the end of the linked
+        # list, and the inherited dictionary is updated with the new key/value pair.
+        if key not in self:
+            root = self.__root
+            last = root[0]
+            last[1] = root[0] = self.__map[key] = [last, root, key]
+        dict_setitem(self, key, value)
+
+    def __delitem__(self, key, dict_delitem=dict.__delitem__):
+        'od.__delitem__(y) <==> del od[y]'
+        # Deleting an existing item uses self.__map to find the link which is
+        # then removed by updating the links in the predecessor and successor nodes.
+        dict_delitem(self, key)
+        link_prev, link_next, key = self.__map.pop(key)
+        link_prev[1] = link_next
+        link_next[0] = link_prev
+
+    def __iter__(self):
+        'od.__iter__() <==> iter(od)'
+        root = self.__root
+        curr = root[1]
+        while curr is not root:
+            yield curr[2]
+            curr = curr[1]
+
+    def __reversed__(self):
+        'od.__reversed__() <==> reversed(od)'
+        root = self.__root
+        curr = root[0]
+        while curr is not root:
+            yield curr[2]
+            curr = curr[0]
+
+    def clear(self):
+        'od.clear() -> None.  Remove all items from od.'
+        try:
+            for node in self.__map.itervalues():
+                del node[:]
+            root = self.__root
+            root[:] = [root, root, None]
+            self.__map.clear()
+        except AttributeError:
+            pass
+        dict.clear(self)
+
+    def popitem(self, last=True):
+        '''od.popitem() -> (k, v), return and remove a (key, value) pair.
+        Pairs are returned in LIFO order if last is true or FIFO order if false.
+
+        '''
+        if not self:
+            raise KeyError('dictionary is empty')
+        root = self.__root
+        if last:
+            link = root[0]
+            link_prev = link[0]
+            link_prev[1] = root
+            root[0] = link_prev
+        else:
+            link = root[1]
+            link_next = link[1]
+            root[1] = link_next
+            link_next[0] = root
+        key = link[2]
+        del self.__map[key]
+        value = dict.pop(self, key)
+        return key, value
+
+    # -- the following methods do not depend on the internal structure --
+
+    def keys(self):
+        'od.keys() -> list of keys in od'
+        return list(self)
+
+    def values(self):
+        'od.values() -> list of values in od'
+        return [self[key] for key in self]
+
+    def items(self):
+        'od.items() -> list of (key, value) pairs in od'
+        return [(key, self[key]) for key in self]
+
+    def iterkeys(self):
+        'od.iterkeys() -> an iterator over the keys in od'
+        return iter(self)
+
+    def itervalues(self):
+        'od.itervalues -> an iterator over the values in od'
+        for k in self:
+            yield self[k]
+
+    def iteritems(self):
+        'od.iteritems -> an iterator over the (key, value) items in od'
+        for k in self:
+            yield (k, self[k])
+
+    def update(*args, **kwds):
+        '''od.update(E, **F) -> None.  Update od from dict/iterable E and F.
+
+        If E is a dict instance, does:           for k in E: od[k] = E[k]
+        If E has a .keys() method, does:         for k in E.keys(): od[k] = E[k]
+        Or if E is an iterable of items, does:   for k, v in E: od[k] = v
+        In either case, this is followed by:     for k, v in F.items(): od[k] = v
+
+        '''
+        if len(args) > 2:
+            raise TypeError('update() takes at most 2 positional '
+                            'arguments (%d given)' % (len(args),))
+        elif not args:
+            raise TypeError('update() takes at least 1 argument (0 given)')
+        self = args[0]
+        # Make progressively weaker assumptions about "other"
+        other = ()
+        if len(args) == 2:
+            other = args[1]
+        if isinstance(other, dict):
+            for key in other:
+                self[key] = other[key]
+        elif hasattr(other, 'keys'):
+            for key in other.keys():
+                self[key] = other[key]
+        else:
+            for key, value in other:
+                self[key] = value
+        for key, value in kwds.items():
+            self[key] = value
+
+    __update = update  # let subclasses override update without breaking __init__
+
+    __marker = object()
+
+    def pop(self, key, default=__marker):
+        '''od.pop(k[,d]) -> v, remove specified key and return the corresponding value.
+        If key is not found, d is returned if given, otherwise KeyError is raised.
+
+        '''
+        if key in self:
+            result = self[key]
+            del self[key]
+            return result
+        if default is self.__marker:
+            raise KeyError(key)
+        return default
+
+    def setdefault(self, key, default=None):
+        'od.setdefault(k[,d]) -> od.get(k,d), also set od[k]=d if k not in od'
+        if key in self:
+            return self[key]
+        self[key] = default
+        return default
+
+    def __repr__(self, _repr_running={}):
+        'od.__repr__() <==> repr(od)'
+        call_key = id(self), _get_ident()
+        if call_key in _repr_running:
+            return '...'
+        _repr_running[call_key] = 1
+        try:
+            if not self:
+                return '%s()' % (self.__class__.__name__,)
+            return '%s(%r)' % (self.__class__.__name__, self.items())
+        finally:
+            del _repr_running[call_key]
+
+    def __reduce__(self):
+        'Return state information for pickling'
+        items = [[k, self[k]] for k in self]
+        inst_dict = vars(self).copy()
+        for k in vars(OrderedDict()):
+            inst_dict.pop(k, None)
+        if inst_dict:
+            return (self.__class__, (items,), inst_dict)
+        return self.__class__, (items,)
+
+    def copy(self):
+        'od.copy() -> a shallow copy of od'
+        return self.__class__(self)
+
+    @classmethod
+    def fromkeys(cls, iterable, value=None):
+        '''OD.fromkeys(S[, v]) -> New ordered dictionary with keys from S
+        and values equal to v (which defaults to None).
+
+        '''
+        d = cls()
+        for key in iterable:
+            d[key] = value
+        return d
+
+    def __eq__(self, other):
+        '''od.__eq__(y) <==> od==y.  Comparison to another OD is order-sensitive
+        while comparison to a regular mapping is order-insensitive.
+
+        '''
+        if isinstance(other, OrderedDict):
+            return len(self)==len(other) and self.items() == other.items()
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other):
+        return not self == other
+
+    # -- the following methods are only used in Python 2.7 --
+
+    def viewkeys(self):
+        "od.viewkeys() -> a set-like object providing a view on od's keys"
+        return KeysView(self)
+
+    def viewvalues(self):
+        "od.viewvalues() -> an object providing a view on od's values"
+        return ValuesView(self)
+
+    def viewitems(self):
+        "od.viewitems() -> a set-like object providing a view on od's items"
+        return ItemsView(self)
+
+# Original topological sort code written by Ofer Faigon (www.bitformation.com)
+# and used with permission.
+def topological_sort(items, partial_order):
+    """Perform topological sort.
+       items is a list of items to be sorted.
+       partial_order is a list of pairs. If pair (a,b) is in it, it means
+       that item a should appear before item b.
+       Returns a list of the items in one of the possible orders, or None
+       if partial_order contains a loop.
+    """
+
+    def add_node(graph, node):
+        """Add a node to the graph if not already exists."""
+        if not graph.has_key(node):
+            graph[node] = [0] # 0 = number of arcs coming into this node.
+
+    def add_arc(graph, fromnode, tonode):
+        """Add an arc to a graph. Can create multiple arcs.
+           The end nodes must already exist."""
+        graph[fromnode].append(tonode)
+        # Update the count of incoming arcs in tonode.
+        graph[tonode][0] = graph[tonode][0] + 1
+
+    # step 1 - create a directed graph with an arc a->b for each input
+    # pair (a,b).
+    # The graph is represented by a dictionary. The dictionary contains
+    # a pair item:list for each node in the graph. /item/ is the value
+    # of the node. /list/'s 1st item is the count of incoming arcs, and
+    # the rest are the destinations of the outgoing arcs. For example:
+    #           {'a':[0,'b','c'], 'b':[1], 'c':[1]}
+    # represents the graph:   c <-- a --> b
+    # The graph may contain loops and multiple arcs.
+    # Note that our representation does not contain reference loops to
+    # cause GC problems even when the represented graph contains loops,
+    # because we keep the node names rather than references to the nodes.
+    graph = {}
+    for v in items:
+        add_node(graph, v)
+    for a,b in partial_order:
+        add_arc(graph, a, b)
+
+    # Step 2 - find all roots (nodes with zero incoming arcs).
+    roots = [node for (node,nodeinfo) in graph.items() if nodeinfo[0] == 0]
+
+    # step 3 - repeatedly emit a root and remove it from the graph. Removing
+    # a node may convert some of the node's direct children into roots.
+    # Whenever that happens, we append the new roots to the list of
+    # current roots.
+    sorted = []
+    while len(roots) != 0:
+        # If len(roots) is always 1 when we get here, it means that
+        # the input describes a complete ordering and there is only
+        # one possible output.
+        # When len(roots) > 1, we can choose any root to send to the
+        # output; this freedom represents the multiple complete orderings
+        # that satisfy the input restrictions. We arbitrarily take one of
+        # the roots using pop(). Note that for the algorithm to be efficient,
+        # this operation must be done in O(1) time.
+        root = roots.pop()
+        sorted.append(root)
+        for child in graph[root][1:]:
+            graph[child][0] = graph[child][0] - 1
+            if graph[child][0] == 0:
+                roots.append(child)
+        del graph[root]
+    if len(graph.items()) != 0:
+        # There is a loop in the input.
+        return None
+    return sorted
+
+# Helper class for disable_output_buffering().
+class UnbufferedStream(object):
+   def __init__(self, stream):
+       self.stream = stream
+   def write(self, data):
+       self.stream.write(data)
+       self.stream.flush()
+   def __getattr__(self, attr):
+       return getattr(self.stream, attr)
+
+# Make stdout and stderr unbufferred.
+def disable_output_buffering():
+    sys.stdout = UnbufferedStream(sys.stdout)
+    sys.stderr = UnbufferedStream(sys.stderr)
+
+
+######################
+### IMPLEMENTATION ###
+######################
+
+global_help_str = """\
+f265test [options] <file> [<file>, ...]
+
+The <file> argument has two formats.
+  <path>: a plain file path. All tests within are executed.
+  <path:test1,...>: a file path and a list of tests to execute.
+
+Options:
+-c, --config:     path to the configuration file. Default to ~/.f265testrc.
+-q, --quiet:      hide all execution steps.
+-v, --verbose:    show all execution steps.
+-i, --ignore:     ignore mismatching results, print the results at the end.
+-n, --no-compile: do not compile encoders prior to use.
+"""
+
+# List of supported encoder names.
+enc_name_list = ["f265", "gstf265", "hm", "x264", "x265"]
+
+# Video definition. Fields correspond directly to the configuration file.
+class Video:
+    def __init__(self):
+        self.name = None
+        self.path = None
+        self.width = None
+        self.height = None
+        self.frames = None
+        self.bitrate = None
+
+    # Return true if the video file is a YUV file.
+    def is_yuv(self):
+        return self.path.endswith(".yuv")
+
+# Test definition.
+class Test:
+    def __init__(self):
+        self.name = None
+        self.encs = None            # List format.
+        for name in enc_name_list:
+            setattr(self, name + "_params", None) # Raw string.
+            setattr(self, name + "_binary", None)
+        self.hm_cfg = None
+        self.f265_special = None    # List format.
+        self.van_cfg_f265 = None    # List format.
+        self.van_cfg_hm = None
+        self.mode = None
+        self.video = None
+        self.frames = None
+        self.qp = None
+        self.bitrate = None
+
+# Test result definition.
+class TestResult:
+    def __init__(self):
+        self.name = None
+        self.size = None
+        self.md5 = None
+        self.quality = None         # Raw string, spaces removed.
+
+# Test batch definition.
+class TestBatch:
+    def __init__(self):
+        self.mode = None
+        self.qp = None              # List format, expanded & sorted.
+        self.bitrate = None         # Integer
+        self.videos = None          # List format.
+
+# Encoder state.
+class EncState:
+    def __init__(self):
+
+        # Name of the encoder.
+        self.name = None
+
+        # Special compilation mode list:
+        # c: assembly support deactivated.
+        # uncompiled: initially set to trigger recompilation on first use.
+        self.comp_modes = []
+
+        # List of C preprocessor #defines used.
+        self.cpp_defines = []
+
+# f265test shell.
+class Shell:
+    def __init__(self):
+
+        # Those fields correspond directly to the configuration file.
+        self.f265_compile = None
+        self.hm_compile = None
+        self.f265_van_cfg = None
+        self.hm_van_cfg = None
+        self.video_dir = None
+        self.hm_cfg_dir = None
+        self.work_dir = None
+        for name in enc_name_list: setattr(self, name + "_binary", None)
+        self.yuvdiff_binary = None
+        self.hm_dec_binary = None
+
+        # List of initial files to parse.
+        self.init_files = None
+
+        # Alias, video, result, encoder state dictionaries indexed by name.
+        self.alias_dict = odict()
+        self.video_dict = odict()
+        self.result_dict = odict()
+        self.enc_state_dict = odict()
+
+        # Populate the encoder state dictionary.
+        for (name, modes) in [("f265", ["uncompiled"]), ("gstf265", ["uncompiled"]),
+                              ("hm", ["uncompiled"]), ("x264", []), ("x265", [])]:
+            s = EncState()
+            s.name = name
+            s.comp_modes = modes
+            s.cpp_defines = []
+            self.enc_state_dict[name] = s
+
+        # Current list of tests, in execution order.
+        self.test_list = None
+
+        # Current batch. None if no batch.
+        self.batch = None
+
+        # Current file path.
+        self.current_file_path = None
+
+        # Path to the configuration file.
+        self.config_path = None
+
+        # Log level (0: quiet, 1: normal, 2: verbose).
+        self.log_level = 1
+
+        # Log indentation level.
+        self.log_indent = 0
+
+        # True to ignore mismatching results.
+        self.ignore_result_flag = 0
+
+        # String to output for the DB results.
+        self.db_result_str = None
+
+        # True to prevent encoder compilation.
+        self.no_compile_flag = 0
+
+        # Value of the HOME variable.
+        self.home = ""
+
+        # Standard output stream. Only the 'write' method is supported.
+        self.stdout = sys.stdout
+
+        # Standard error stream. Only the 'write' method is supported.
+        self.stderr = sys.stderr
+
+        # Trapped exception list.
+        self.trapped_exception_list = (KeyboardInterrupt, EOFError, SystemExit, Exception)
+
+    # Print the program usage.
+    def print_usage(self, stream):
+        stream.write(global_help_str + "\n")
+
+    # Print a message if the log level specified is lower or equal to the
+    # threshold.
+    def log_msg(self, level, msg):
+        if level <= self.log_level:
+            s = ""
+            for i in range(2*self.log_indent): s += " "
+            s += msg + "\n"
+            self.stdout.write(s)
+
+    # Parse the command line specified. Return a tuple containing the options
+    # and the arguments. Raise an exception on error.
+    def parse_cmd_line(self, cmd_line):
+        return getopt.gnu_getopt(cmd_line, "hc:qvin",
+                                 [ "help",
+                                   "config=",
+                                   "quiet",
+                                   "verbose",
+                                   "ignore",
+                                   "no-compile"])
+
+    # Handle a getopt error. Return exit code 1.
+    def handle_getopt_error(self, e):
+        self.stderr.write("Options error: %s.\n\n" % (str(e)))
+        self.print_usage(self.stderr)
+        return 1
+
+    # Handle the options and make sure the command line is sane.
+    def handle_options(self, opts, args):
+        # Get the options.
+        for k, v in opts:
+            if k in ("-h", "--help"):
+                self.print_usage(self.stdout)
+                sys.exit(0)
+            elif k in ("-c", "--config"): self.config_path = v
+            elif k in ("-q", "--quiet"): self.log_level = 0
+            elif k in ("-v", "--verbose"): self.log_level = 2
+            elif k in ("-i", "--ignore"): self.ignore_result_flag = 1
+            elif k in ("-n", "--no-compile"): self.no_compile_flag = 1
+
+        # Get the value of HOME.
+        if not os.environ.has_key("HOME"): raise Exception("HOME is not defined")
+        self.home = os.environ["HOME"]
+
+        # Set the configuration file path.
+        if self.config_path == None: self.config_path = os.path.join(self.home, ".f265testrc")
+
+        # Verify that we have a file to process.
+        if not len(args):
+            self.stderr.write("No file to process.\n\n")
+            self.print_usage(self.stderr)
+            sys.exit(1)
+
+    # Return a pretty name for an encoder.
+    def get_pretty_enc_name(self, enc):
+        d = { "f265":"f265", "gstf265":"gstf265", "hm":"HM", "x264":"x264", "x265":"x265" }
+        if not d.has_key(enc): raise Exception("invalid encoder %s" % (enc))
+        return d[enc]
+
+    # Return a pretty string for a video.
+    def get_pretty_video_string(self, video):
+        return "%s %dx%d" % (video.name, video.width, video.height)
+
+    # Return a pretty bitrate string for a video.
+    def get_pretty_bitrate_string(self, video, qp, bitrate):
+        effective_bitrate = bitrate
+        if qp != None:
+            bitrate_mult = 2.0**((26-qp)/6.0)
+            effective_bitrate = int(video.bitrate * bitrate_mult)
+        bitrate_str = "%d kb/s" % (effective_bitrate)
+        if qp != None: return "QP %d (%s)" % (qp, bitrate_str)
+        return bitrate_str
+
+    # Return a pretty string for a test.
+    def get_pretty_test_string(self, test, mode):
+        d = { "db":"DB", "cmp":"Compare", "run":"Run", "unit":"Unit"}
+        return "%s test %s" % (d[mode], test.name)
+
+    # Return a pretty string for the test results specified.
+    def get_pretty_test_results(self, enc, run_time, size, md5, quality):
+        s = ""
+        name = self.get_pretty_enc_name(enc)
+        s += name
+        for i in range(9-len(name)): s += " "
+        if run_time != None: s += "secs %.2f  " % (run_time)
+        if size != None: s += "bytes %d  " % (size)
+        if quality != None:
+            def fmt_val(val): return "%s " % (val)
+            s += "psnr "
+            for i in range(0,3): s += fmt_val(quality[i])
+            s += " ssim "
+            for i in range(3,6): s += fmt_val(quality[i])
+            s += " "
+        if md5 != None: s += "md5 %s  " % (md5)
+        return s
+
+    # Return the path of a file from the base directory specified while handling
+    # special cases.
+    def get_base_dir_file_path(self, dir_path, file_path):
+        if file_path.startswith("/") or file_path.startswith("./"): return file_path
+        return os.path.join(dir_path, file_path)
+
+    # Parse a file argument. Return a tuple containing the file path and the
+    # restricted list of tests to execute, if any.
+    def parse_file_arg(self, file_arg):
+        file_path = file_arg
+        test_name_list = None
+        colon_pos = file_arg.find(":")
+        if colon_pos != -1:
+            file_path = file_arg[0:colon_pos]
+            test_name_list = file_arg[1+colon_pos:].split(",")
+        return (file_path, test_name_list)
+
+    # Perform the initial loading.
+    def initial_load(self):
+
+        # Load the configuration file.
+        self.cfg = self.load_data_file(self.config_path, None, ["config", "aliases", "video"])
+
+        # Load the initial files.
+        for file_path in self.init_files: self.load_data_file(file_path, None, ["aliases", "video"])
+
+    # Load the specified sections of a data file. If test_name_list is defined,
+    # only the tests specified in the list are kept.
+    def load_data_file(self, file_path, test_name_list, section_list):
+
+        # Complain about a value in a section.
+        def complain(section, key):
+            raise Exception("%s.%s: invalid value '%s'" % (section, key, parser.get(section, key)))
+
+        # Check if all the values in the given list match the allowed values.
+        def check_list(section, key, actual, allowed):
+            for v in actual:
+                if not v in allowed: complain(section, key)
+
+        # Read and parse the value corresponding to the key specified. If the
+        # key does not exist, an exception is thrown if default is "n/a",
+        # otherwise default is returned. val_type controls how the value is
+        # interpreted:
+        # "i": integer.
+        # "s": string.
+        # "sl": string list.
+        # "il": integer list.
+        def read_key(section, key, val_type, default):
+            if not val_type in ["i", "s", "sl", "il"]: raise Exception("invalid configuration value type")
+
+            if not parser.has_option(section, key):
+                if default == "n/a": raise Exception("specify value for %s.%s" % (section, key))
+                return default
+
+            value = parser.get(section, key)
+
+            try:
+                if val_type == "s": return value
+                if val_type == "i": return int(value)
+                val_list = [v.strip() for v in value.split(",") if v.strip() != ""]
+                if val_type == "il": val_list = [int(v) for v in val_list]
+                return val_list
+
+            except Exception: complain(section, key)
+
+        # Handle the sections.
+        def handle_config():
+            if not "config" in section_list: return
+            self.f265_compile = read_key("config", "f265_compile", "s", "n/a")
+            self.hm_compile = read_key("config", "hm_compile", "s", "n/a")
+            self.f265_van_cfg = read_key("config", "f265_van_cfg", "s", "n/a")
+            self.hm_van_cfg = read_key("config", "hm_van_cfg", "s", "n/a")
+            self.video_dir = read_key("config", "video_dir", "s", "n/a")
+            self.hm_cfg_dir = read_key("config", "hm_cfg_dir", "s", "n/a")
+            self.work_dir = read_key("config", "work_dir", "s", "n/a")
+            for name in enc_name_list:
+                setattr(self, name + "_binary", read_key("config", name + "_binary", "s", ""))
+            self.yuvdiff_binary = read_key("config", "yuvdiff_binary", "s", "yuvdiff")
+            self.hm_dec_binary = read_key("config", "hm_dec_binary", "s", "n/a")
+            self.init_files = read_key("config", "init_files", "sl", [])
+
+        def handle_aliases():
+            if not "aliases" in section_list: return
+            for (key, value) in parser.items("aliases"): self.alias_dict[key] = value
+
+        def handle_video(section):
+            if not "video" in section_list: return
+            v = Video()
+            v.name = section[6:]
+            v.path = self.get_base_dir_file_path(self.video_dir, read_key(section, "path", "s", "n/a"))
+            match = re.match("^(\d+)x(\d+)$", read_key(section, "resolution", "s", "n/a"))
+            if not match: complain(section, "resolution")
+            v.width = int(match.group(1))
+            v.height = int(match.group(2))
+            v.frames = read_key(section, "frames", "i", "n/a")
+            v.bitrate = read_key(section, "bitrate", "i", "n/a")
+            self.video_dict[v.name] = v
+
+        def handle_test(section):
+            if not "test" in section_list: return
+            t = Test()
+            t.name = section[5:]
+            t.encs = read_key(section, "encs", "sl", ["f265"])
+            check_list(section, "enc", t.encs, enc_name_list)
+            for name in enc_name_list:
+                setattr(t, name + "_params", read_key(section, name + "_params", "s", ""))
+                setattr(t, name + "_binary", read_key(section, name + "_binary", "s", ""))
+            t.hm_cfg = read_key(section, "hm_cfg", "s", None)
+            if t.hm_cfg != None: t.hm_cfg = self.get_base_dir_file_path(self.hm_cfg_dir, t.hm_cfg)
+            t.f265_special = read_key(section, "f265_special", "sl", [])
+            check_list(section, "f265_special", t.f265_special, ["c", "valgrind", "reconst", "hm_gop"])
+            t.van_cfg_f265 = read_key(section, "van_cfg_f265", "sl", [])
+            t.van_cfg_hm = read_key(section, "van_cfg_hm", "sl", [])
+            t.mode = read_key(section, "mode", "s", None)
+            check_list(section, "mode", [t.mode], ["db", "cmp", "run", "unit", None])
+            t.video = read_key(section, "video", "s", None)
+            t.frames = read_key(section, "frames", "i", None)
+            t.qp = read_key(section, "qp", "i", None)
+            t.bitrate = read_key(section, "bitrate", "i", None)
+            if test_name_list == None or t.name in test_name_list: self.test_list.append(t)
+
+        def handle_result(section):
+            if not "result" in section_list: return
+            r = TestResult()
+            r.name = section[7:]
+            r.size = read_key(section, "size", "i", "n/a")
+            r.md5 = read_key(section, "md5", "s", "n/a")
+            r.quality = read_key(section, "quality", "s", "n/a")
+            self.result_dict[r.name] = r
+
+        def handle_batch():
+            if not "batch" in section_list: return
+            b = TestBatch()
+            b.mode = read_key(section, "mode", "s", "n/a")
+            check_list(section, "mode", [b.mode], ["cqp", "abr", "rd"])
+            qp_list = read_key(section, "qp", "sl", None)
+            if qp_list != None:
+                b.qp = []
+                for qp_str in qp_list:
+                    if re.match("^\d+$", qp_str): b.qp.append(int(qp_str)); continue
+                    match = re.match("^(\d+)-(\d+)$", qp_str)
+                    if not match: complain(section, "qp")
+                    range_start = int(match.group(1)); range_end = int(match.group(2))
+                    if range_start > range_end: complain(section, "qp")
+                    for i in range(range_start, range_end+1): b.qp.append(i)
+                b.qp.sort()
+            b.bitrate = read_key(section, "bitrate", "i", None)
+            b.videos = read_key(section, "videos", "sl", "n/a")
+            self.batch = b
+
+        # If the name is an alias, convert it to the actual file name.
+        if self.alias_dict.has_key(file_path): file_path = self.alias_dict[file_path]
+
+        # Set the current file path.
+        self.current_file_path = file_path
+
+        # Parse the file.
+        if not os.path.isfile(file_path): raise Exception("file '%s' does not exist" % (file_path))
+        parser = read_ini_file(file_path)
+
+        # Process every section.
+        have_config = 0
+        self.test_list = []
+        self.batch = None
+
+        for section in parser.sections():
+            if section == "config": have_config = 1; handle_config()
+            elif section == "aliases": handle_aliases()
+            elif section.startswith("video_"): handle_video(section)
+            elif section.startswith("test_"): handle_test(section)
+            elif section.startswith("result_"): handle_result(section)
+            elif section == "batch": handle_batch()
+
+        if "config" in section_list and not have_config:
+            raise Exception("no configuration section found")
+
+    # Verify that the QP / birate selection is consistent.
+    def validate_qp_bitrate_selection(self, qp, bitrate):
+        if qp == None and bitrate == None: raise Exception("no QP or bitrate specified")
+        if qp != None and bitrate != None: raise Exception("cannot specify both QP and bitrate")
+
+    # Compile the encoder specified for the test as required and return the
+    # binary path.
+    def compile_test_enc(self, enc, test):
+        enc_state = self.enc_state_dict[enc]
+
+        # Return if the binary path is non-standard.
+        binary_key = enc + "_binary"
+        binary_path = getattr(test, binary_key)
+        if len(binary_path): return binary_path
+        binary_path = getattr(self, binary_key)
+        if not binary_path: raise Exception("no binary path specified for %s" % (enc))
+
+        # Return if we're not allowed to compile or the encoder is not
+        # compilable.
+        if self.no_compile_flag or enc in ["x264", "x265"]: return binary_path
+
+        # Return if the compilation modes and defines match.
+        comp_script = getattr(self, enc + "_compile")
+        van_cfg_path = getattr(self, enc + "_van_cfg")
+        cpp_defines = getattr(test, "van_cfg_" + enc)
+        comp_args = []
+        comp_modes = []
+        if enc in ["f265", "gstf265"] and "c" in test.f265_special:
+            comp_modes = ["c"]
+            comp_args = ["-c"]
+        if str(comp_modes) == str(enc_state.comp_modes) and str(cpp_defines) == str(enc_state.cpp_defines):
+            return binary_path
+
+        # Update the encoder state.
+        enc_state.comp_modes = comp_modes
+        enc_state.cpp_defines = cpp_defines
+
+        # Write the van_cfg.h file unless it is bit-exact with the required
+        # content. This shortens the compilation in make-based environments.
+        s = ""
+        for define in cpp_defines: s += "#define %s\n" % (define)
+        s += "\n"
+        if not os.path.isfile(van_cfg_path) or read_file(van_cfg_path) != s: write_file(van_cfg_path, s)
+
+        # Call the compilation script.
+        self.log_msg(2, "Compiling %s ..." % (" ".join([self.get_pretty_enc_name(enc)] + comp_args)))
+        get_cmd_output([comp_script] + comp_args, err_behavior="full")
+        return binary_path
+
+    # Return the command line to execute the encoder. Set up the wrapper script
+    # as needed.
+    def get_test_enc_cmd_line(self, enc, test, video, bs_path, qp, bitrate, binary_path, fake_yuv_flag, yuv_dump_path,
+                              valgrind_flag):
+        enc_args = []
+        resolution = "%dx%d" % (video.width, video.height)
+        fifo_path = os.path.join(self.work_dir, "fake_yuv.pipe")
+
+        # Get the encoder command line.
+        if enc == "f265":
+            if video.is_yuv(): enc_args += ["-w", resolution]
+            enc_args += ["-p"]
+            enc_params = test.f265_params.split()
+            if qp != None: enc_params += ["rc=cqp", "qp=%d" % (qp)]
+            else: enc_params += ["rc=abr", "bitrate=%d" % (bitrate)]
+            enc_params += ["fps=30"]
+            if "hm_gop" in test.f265_special:
+                if not test.hm_cfg: raise Exception("no HM configuration file specified")
+                enc_params.append("hm-gop=%s" % (test.hm_cfg))
+            if yuv_dump_path: enc_params.append("yuv-dump=%s" % (yuv_dump_path))
+            enc_args += [" ".join(enc_params)]
+            if test.frames != None: enc_args += ["-c", str(test.frames)]
+            enc_args += [video.path, bs_path]
+
+        elif enc == "gstf265":
+            raise Exception("gstf265 unimplemented")
+
+        elif enc == "x264":
+            if fake_yuv_flag: enc_args.append(fifo_path)
+            else: enc_args.append(video.path)
+            enc_args += ["-o", bs_path, "--quiet", "--no-progress", "--fps", "30", "--input-res", resolution]
+            if qp != None: enc_args += ["--qp", str(qp)]
+            else: enc_args += ["--bitrate", str(bitrate)]
+            if test.frames != None: enc_args += ["--frames", str(test.frames)]
+            enc_args += test.x264_params.split()
+
+        elif enc == "x265":
+            if fake_yuv_flag: enc_args.append(fifo_path)
+            else: enc_args.append(video.path)
+            enc_args += [bs_path, "--log-level", "-1", "--no-progress", "--fps", "30", "--input-res", resolution]
+            if qp != None: enc_args += ["--qp", str(qp)]
+            else: enc_args += ["--bitrate", str(bitrate)]
+            if test.frames != None: enc_args += ["--frames", str(test.frames)]
+            enc_args += test.x265_params.split()
+
+        elif enc == "hm":
+            if not test.hm_cfg: raise Exception("no HM configuration file specified")
+            enc_args += ["-c", test.hm_cfg]
+            enc_args.append("-i")
+            if fake_yuv_flag: enc_args.append(fifo_path)
+            else: enc_args.append(video.path)
+            if os.path.lexists("/dev/null"): enc_args += ["-o", "/dev/null"]
+            enc_args += ["-b", bs_path, "-wdt", str(video.width), "-hgt", str(video.height), "-fr", "30"]
+            if qp != None: enc_args += ["-q", str(qp)]
+            else: raise Exception("HM ABR support unimplemented")
+            if test.frames != None: enc_args += ["-f", str(test.frames)]
+            enc_args += test.hm_params.split()
+
+        else: raise Exception("invalid encoder")
+
+        # Execute the encoder through a wrapper script.
+        if fake_yuv_flag:
+
+            # Create the FIFO as needed.
+            if not os.path.exists(fifo_path): os.mkfifo(fifo_path)
+
+            # Write the wrapper script. We have two versions, one with
+            # GStreamer, one with ffmpeg. Using ffmpeg currently since it is
+            # less buggy than GStreamer on old systems.
+            s = ""
+            s += "#!/bin/bash\n\n"
+
+            # GStreamer code.
+            #s += "gst-launch-0.10 -f filesrc location=%s ! \\\n" % (video.path)
+            #s += "    qtdemux name=demux ! \\\n"
+            #s += "    video/x-h264 ! \\\n"
+            #s += "    ffdec_h264 ! \\\n"
+            #s += "    filesink location=%s &\n\n" % (fifo_path)
+
+            # ffmpeg code.
+            s += "ffmpeg -y -i %s -f rawvideo %s &\n\n" % (video.path, fifo_path)
+
+            s += "%s\n\n" % (" ".join([binary_path] + enc_args))
+            s += "wait\n"
+
+            wrapper_path = os.path.join(self.work_dir, "fake_yuv.sh")
+            write_file(wrapper_path, s)
+            get_cmd_output(["chmod", "+x", wrapper_path])
+            exec_cmd_line = [wrapper_path]
+
+        # Execute the encoder directly.
+        else:
+            exec_cmd_line = [binary_path] + enc_args
+
+        # Add Valgrind.
+        if valgrind_flag: exec_cmd_line.insert(0, "valgrind")
+
+        return exec_cmd_line
+
+    # Execute the encoder specified for the test. Return the run time.
+    def exec_test_enc(self, enc, test, video, bs_path, qp, bitrate):
+
+        # Compile the encoder as needed. Get the binary path.
+        binary_path = self.compile_test_enc(enc, test)
+
+        # Check if we need to fake a YUV file.
+        fake_yuv_flag = not video.is_yuv() and enc in ["x264", "hm"]
+
+        # Check for Valgrind or reconstruction tests.
+        valgrind_flag = 0
+        yuv_dump_path = None
+        if enc in ["f265", "gstf265"]:
+            if "reconst" in test.f265_special: yuv_dump_path = os.path.join(self.work_dir, ("%s.dump.yuv" % (enc)))
+            if "valgrind" in test.f265_special: valgrind_flag = 1
+
+        # Execute the encoder.
+        s = "Running %s" % (self.get_pretty_enc_name(enc))
+        if valgrind_flag: s += " with Valgrind"
+        if fake_yuv_flag: s += " with faked YUV"
+        s += " ..."
+        self.log_msg(2, s)
+
+        cmd_line = self.get_test_enc_cmd_line(enc, test, video, bs_path, qp, bitrate, binary_path, fake_yuv_flag,
+                                              yuv_dump_path, valgrind_flag)
+        start_time = time.time()
+        output = get_cmd_output(cmd_line, err_behavior="full", append_err=1)
+        run_time = time.time() - start_time
+
+        # Check Valgrind output.
+        if valgrind_flag:
+            match = re.search("ERROR SUMMARY: (\d+) errors from", output)
+            if not match: raise Exception("Valgrind match failure")
+            nb_err = int(match.group(1))
+            if nb_err: raise Exception("Valgrind found %d errors" % (nb_err))
+
+        # Check the reconstruction.
+        if yuv_dump_path:
+            yuv_bs_path = os.path.join(self.work_dir, enc + ".dec.yuv")
+            self.log_msg(2, "Checking reconstruction ...")
+            self.decode_h265_bs(bs_path, yuv_bs_path)
+            rec_cmd_line = [ self.yuvdiff_binary, yuv_dump_path, yuv_bs_path, "-r", "-w", "%s:%s" % (video.width, video.height)]
+            rec_out = get_cmd_output(rec_cmd_line)
+            if rec_out: raise Exception("reconstruction mismatch")
+        return run_time
+
+    # Decode the H.265 bitstream specified.
+    def decode_h265_bs(self, bs, out):
+        cmd_line = [ self.hm_dec_binary, "-b", bs, "-o", out ]
+        get_cmd_output(cmd_line, err_behavior="full")
+
+    # Return the list [size, md5, quality], where "size" and "md5" are the
+    # filesystem size and md5 sum of file "target", and "quality" is the quality
+    # of "target" from the original video (PSNR, SSIM for each YUV component).
+    # The fields are set to None if they are not requested.
+    def analyze_test_enc(self, video, target, size_flag, md5_flag, quality_flag):
+        size = md5 = quality = None
+
+        self.log_msg(2, "Analyzing results ... ")
+        if size_flag: size = os.stat(target).st_size
+        md5_cmd = "md5" if "darwin" == sys.platform else "md5sum"
+        if md5_flag: md5 = get_cmd_output([md5_cmd, target]).split()[0]
+        if quality_flag:
+
+            # Decode the target to YUV if this is an H.265 bitstream.
+            target_yuvdiff_path = target
+            if target.endswith(".265"):
+                target_yuvdiff_path = target.replace(".265", ".dec.yuv")
+                self.decode_h265_bs(target, target_yuvdiff_path)
+
+            # Run yuvdiff. Note that yuvdiff prints "******" when a component
+            # matches exactly.
+            qual_cmd_line = [ self.yuvdiff_binary, "-w", "%s:%s" % (video.width, video.height),
+                             "-m", "psnr,ssim", "-a", video.path, target_yuvdiff_path]
+            qual_out = get_cmd_output(qual_cmd_line)
+            pattern = "Average"
+            for i in range(6): pattern += " +(\S+)"
+            match = re.search(pattern, qual_out)
+            if not match: raise Exception("yuvdiff quality match failure")
+            quality = []
+            for i in range(6): quality.append(match.group(1+i))
+
+        return [size, md5, quality]
+
+    # Execute a test. "mode" is the batch mode if a batch is used, otherwise it
+    # is the test mode.
+    def exec_test(self, test, mode, video_name, qp, bitrate):
+
+        # Remember the current encoder, if any, for error reporting.
+        cur_enc = None
+
+        try:
+            # Analyze the mode, determine what we need to measure.
+            time_flag = size_flag = md5_flag = quality_flag = 0
+            if mode == "db":
+                if len(test.encs) != 1: raise Exception("must use one encoder")
+                size_flag = md5_flag = quality_flag = 1
+            elif mode == "cmp":
+                if len(test.encs) != 2: raise Exception("must use two encoders")
+                size_flag = md5_flag = 1
+            elif mode == "run":
+                time_flag = size_flag = md5_flag = quality_flag = 1
+            elif mode == "unit":
+                pass
+            elif mode in ("cqp", "abr", "rd"):
+                if len(test.encs) < 1: raise Exception("must use at least one encoder")
+                time_flag = size_flag = md5_flag = quality_flag = 1
+            else: raise Exception("invalid test mode")
+
+            # Validate the video, QP and bitrate.
+            if not video_name: raise Exception("no video specified")
+            if not self.video_dict.has_key(video_name): raise Exception("unknown video '%s'" % (video_name))
+            video = self.video_dict[video_name]
+            self.validate_qp_bitrate_selection(qp, bitrate)
+
+            # Announce the test.
+            if self.batch:
+                self.log_msg(1, "Test %s:" % (test.name))
+            else:
+                self.log_msg(1, "%s, video %s @ %s:" % (self.get_pretty_test_string(test, mode),
+                                                        self.get_pretty_video_string(video),
+                                                        self.get_pretty_bitrate_string(video, qp, bitrate)))
+
+            # Iterate on the encoders.
+            result_dict = odict()
+            self.log_indent += 1
+            for enc in test.encs:
+                cur_enc = enc
+
+                # Get the output bitstream file path.
+                if enc == "x264": bs_ext = "264"
+                else: bs_ext = "265"
+                bs_path = os.path.join(self.work_dir, ("%s.%s" % (enc, bs_ext)))
+
+                # Execute the encoder.
+                run_time = self.exec_test_enc(enc, test, video, bs_path, qp, bitrate)
+                if not time_flag: run_time = None
+
+                # Analyze the results.
+                result_dict[enc] = res_list = self.analyze_test_enc(video, bs_path, size_flag, md5_flag, quality_flag)
+
+                # Print the results.
+                self.log_msg(1, self.get_pretty_test_results(enc, run_time, res_list[0], res_list[1], res_list[2]))
+
+                # Verify/collect the test results.
+                if mode == "db":
+                    if not self.ignore_result_flag:
+                        if not self.result_dict.has_key(test.name):
+                            raise Exception("no database results found for test %s" % (test.name))
+                        db_res = self.result_dict[test.name]
+                        if res_list[0] != db_res.size or \
+                           res_list[1] != db_res.md5.strip() or \
+                           " ".join(res_list[2]) != db_res.quality.strip():
+                            raise Exception("database results mismatch for test %s" % (test.name))
+                    s = ""
+                    s += "[result_%s]\n" % (test.name)
+                    s += "size=%d\n" % (res_list[0])
+                    s += "md5=%s\n" % (res_list[1])
+                    s += "quality=%s\n" % (" ".join(res_list[2]))
+                    s += "\n"
+                    self.db_result_str += s
+            self.log_indent -= 1
+            cur_enc = None
+
+            # Verify if the two bitstreams match by comparing their MD5 sums.
+            if mode == "cmp":
+                res_list = result_dict.values()
+                if res_list[0][1] != res_list[1][1]: raise Exception("bitstreams differ")
+
+        except Exception, e:
+            s = "test " + test.name
+            if cur_enc: s += ": " + cur_enc
+            s += ": " + str(e)
+            raise Exception(s)
+
+    # Execute the tests defined in the current data file.
+    def process_current_file(self):
+        self.log_msg(1, "Processing %s ..." % (self.current_file_path))
+
+        # Clear the DB result string.
+        self.db_result_str = ""
+
+        # Individual test mode.
+        if not self.batch:
+            self.log_indent += 1
+            for test in self.test_list:
+                self.exec_test(test, test.mode, test.video, test.qp, test.bitrate)
+            self.log_indent -= 1
+            self.log_msg(1, "")
+
+        # Batch mode.
+        else:
+            self.validate_qp_bitrate_selection(self.batch.qp, self.batch.bitrate)
+
+            # Pass the videos.
+            self.log_indent += 1
+            for video_name in self.batch.videos:
+                if not self.video_dict.has_key(video_name): raise Exception("unknown video '%s'" % (video_name))
+                video = self.video_dict[video_name]
+
+                self.log_msg(1, "%s:" % (self.get_pretty_video_string(video)))
+
+                # Pass either the QPs or the bitrate.
+                rate_list = [self.batch.bitrate]
+                if self.batch.qp: rate_list = self.batch.qp
+                self.log_indent += 1
+                for rate in rate_list:
+                    qp = bitrate = None
+                    if self.batch.qp: qp = rate
+                    else: bitrate = rate
+                    self.log_msg(1, "%s:" % (self.get_pretty_bitrate_string(video, qp, bitrate)))
+
+                    # Pass the tests.
+                    self.log_indent += 1
+                    for test in self.test_list:
+                        self.exec_test(test, self.batch.mode, video.name, qp, bitrate)
+                    self.log_indent -= 1
+
+                    self.log_msg(1, "")
+                self.log_indent -= 1
+            self.log_indent -= 1
+
+        # Print the database results.
+        if self.db_result_str and self.ignore_result_flag:
+            self.log_msg(0, self.db_result_str)
+
+    # This method implements a high-level exception handler.
+    def high_level_exception_handler(self, e, ignore_error=0):
+
+        # Raise system exit exceptions.
+        if isinstance(e, SystemExit): raise e
+
+        # Ignore interruptions.
+        elif isinstance(e, KeyboardInterrupt) or isinstance(e, EOFError): return
+
+        # Print errors, exit if requested.
+        else:
+            self.stderr.write("Error: " + str(e) + ".\n")
+            if ignore_error: return
+            sys.exit(1)
+
+def main():
+
+    # Disable buffering.
+    disable_output_buffering()
+
+    # Create an instance of the shell.
+    shell = Shell()
+
+    try:
+        # Parse the command line.
+        cmd_line = ""
+        if len(sys.argv): cmd_line = sys.argv[1:]
+        try: opts, args = shell.parse_cmd_line(cmd_line)
+        except getopt.GetoptError, e: sys.exit(shell.handle_getopt_error(e))
+
+        # Handle the options.
+        shell.handle_options(opts, args)
+
+        # Perform the initial loading.
+        shell.initial_load()
+
+        # Process the command line files.
+        for file_arg in args:
+            (file_path, test_name_list) = shell.parse_file_arg(file_arg)
+            shell.load_data_file(file_path, test_name_list, ["video", "test", "result", "batch"])
+            shell.process_current_file()
+
+    # Handle the exceptions. Comment out to debug.
+    except shell.trapped_exception_list, e: shell.high_level_exception_handler(e, 0)
+    #except: raise
+
+if __name__ == "__main__": main()
+

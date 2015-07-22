@@ -1,0 +1,81 @@
+This document describes the coding convention of the project.
+
+
+* C programming.
+
+Master rule: respect the existing style of the project.
+
+Tab indentation is four spaces. Remove hardware tabs and trailing whitespaces
+from the file.
+
+Space after "if", "do", etc. No space before or after parentheses for function
+calls. Braces on their own line. The pointer star is next to the variable, not
+the type (unless there's no variable).
+
+C symbols are all lowercase, separated by underscores. Preprocessor symbols are
+in upper case.
+
+Prefix types, functions and global variables by "f265_". Typedef structures
+systematically. Use plain names -- no hungarian notation.
+
+Limit the scope of private functions and structures. If they are local to a
+specific feature, they should only be declared in the .c file.
+
+The preferred comment style is "//". Leave a blank line above a comment.
+
+No line longer than 120 characters.
+
+Indent preprocessor directives when it makes sense, e.g. inside an if clause.
+
+Use only valid C99 constructs (no C++). Do not use intrinsics.
+
+
+* Assembly programming.
+
+Document a lot!
+
+Instruction on column 4, operands on column 20, comment on column 44.
+
+Undefine your macros after usage.
+
+
+* Example.
+
+// Comment like this, with a capital letter and a final dot, systematically.
+typedef struct f265_some_struct
+{
+    // Document your data field unless it is _really_ obvious.
+    int foo;
+
+} f265_some_struct;
+
+// Document your function unless it is obvious.
+static void* f265_some_func(f265_some_struct *arg1, int arg2)
+{
+    // 4-space indentation. Braces on their own line.
+    if (arg1->foo == arg2)
+    {
+        // Indent the preprocessor too.
+        #ifndef SOME_MACRO
+        f265_some_func(arg1, 0);
+        #endif
+        
+        // Leave a (mostly) blank line above a comment.
+        arg2 = 0;
+    }
+
+    else
+    {
+        // If you add really long lines then make sure they do not exceed
+        // 120 characters in length.
+    }
+    
+    // Cast style.
+    void *ret = (void*)arg1;
+    return ret;
+}
+
+
+// Extra white space (e.g. two blank lines) mark logical separations. Don't add
+// extra whitespace unless it matters.
+

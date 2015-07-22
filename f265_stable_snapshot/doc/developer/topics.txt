@@ -1,0 +1,191 @@
+Contribution Topics
+-------------------
+
+Here are some high-level topics that we will be working on eventually. Do not
+hesitate to email us for additional details or to submit a topic you believe we
+would be interested in.
+
+* CTB layout.
+  An exhaustive exploration of the coding tree is expensive. Smart trade-offs
+  between speed and quality are how we'll make f265 fast.
+
+  * Efficient early termination.
+    - When processing CTBs in top-down fashion:
+      Analyze the current CB.
+      Check the early termination criterion.
+      Terminate the analysis and return when the criterion is met.
+      Explore the children CBs otherwise.
+      Choose between using the children or the current CB.
+      Return.
+
+    - When processing CTBs in bottom-up fasion:
+      Explore then children CBs.
+      Check the early termination criterion.
+      Terminate the analysis and return when the criterion is met.
+      Analyze the current CB otherwise.
+      Choose between using the children or the current CB.
+      Return.
+
+  * Multiple passes.
+    - Use heuristics at first to discard uninteresting layouts.
+    - Explore the remaining layouts.
+
+  * Layout prediction.
+    - Use the lookahead (see below) to preprocess the frames to be coded.
+      Propose a layout (i.e. a hint) instead of starting at the top or at the
+      of the CTB.
+    - Use already coded frames to predict the layout (inter especially).
+    - Use neighboring blocks to predict the layout.
+
+  * Use the child CB results to drive the parent CB analysis.
+    - Requires a bottom-up approach.
+
+* Intra prediction.
+  Intra prediction is tightly coupled with the transform tree exploration.
+  Each skipped mode results in one less costly TT optimization problem.
+
+  * Binary-like search.
+    - Start with "easy" modes (ones that do not require sample filtering).
+    - Locate the most promising interval and run a binary-like search to find
+      the best prediction mode.
+
+  * Border analysis.
+    - Select modes based on pixel distribution (or something equivalent).
+      Any treatment here needs to be more efficient than actually exploring
+      the modes.
+
+* Inter prediction.
+
+  * Criterion to skip intra prediction.
+    - The reference software simply checks for remaining residual.
+    - Is there anything better?
+
+  * B-frame motion estimation refinement.
+    - Independently finding the best motion vectors in lists 0 and 1 does not
+      guarantee that they form the best pair.
+
+  * Weighted prediction.
+
+  * Fast elimination of merge candidates.
+
+* Transform tree optimization.
+  An exhaustive exploration to identify the best layout is time consuming.
+  With bigger CBs, this could imply running one 32x32 transform, four 16x16
+  transforms, 16 8x8 transforms and 64 4x4 transform, plus all the associated
+  operations to reconstruct the signal afterwards.
+
+  * Layout prediction.
+    - Analyse the residual signal.
+      The analysis process MUST be less costly than the actual transformation,
+      scaling and reconstruction.
+      The transforms, the quantization and the likes will be written in
+      assembly to be as fast as possible.
+
+  * Early termination.
+    - Define an efficient stop criterion to accelerate the TT exploration.
+    - Clever limitations of the transform tree depths.
+      This is different than limiting the depths using the syntax elements
+      signaled in the parameter sets.
+
+  * Top-down vs Bottom-up.
+    - Running the smaller transforms first might actually give insight into
+      the residual signal distribution.
+
+* Better rate control.
+  
+  * Reduce quality variations.
+
+  * 2-pass encoding.
+
+* Lookahead.
+
+  * Frame type decision.
+    - Scene cut detection.
+    - Faster B-frame decisions.
+    - Optimal B-frame trellis.
+      This determines the best P/B layout.
+
+  * Block flow.
+    - Adjust QP based on the amount of referenced blocks.
+    - Adjust QP based on the variance of the pixels.
+
+* Additional tool support.
+  These coding tools are defined in the H.265 standard. They are not yet
+  supported by our encoder.
+
+  Supporting some of these tools will come with important architectural
+  challenges. This is especially true for slices, tiles, WPP and SAO.
+
+  * Slices.
+    - Fixed number of CTBs per slice.
+    - Size limit in bytes.
+    - Any other valid layout.
+
+  * Tiles.
+    - All layouts.
+    - Multiple slices per tile.
+    - Multiple tiles in a single slice.
+
+  * WPP.
+
+  * PCM.
+
+  * Transquant bypass.
+
+  * Transform skip.
+
+  * SAO.
+    - Early SAO estimation.
+    - Late SAO estimation.
+
+  * Quantization groups (adaptive quantization).
+
+  * Non 4:2:0 support.
+
+  * High bit depth.
+
+  * Non-flat scaling lists.
+
+  * Frame layouts using leading and trailing frames.
+
+  * SEI/VUI NALs.
+
+* Multithreading.
+
+  * Slices.
+    
+  * Tiles.
+ 
+  * Frames.
+
+  * GOPs.
+
+* Assembly.
+  We are targeting the Haswell architecture.
+  
+  * Intra prediction for all block sizes.
+  
+  * Quantization & encoding preprocessing for all block sizes.
+  
+  * Luma and chroma quarterpel interpolation for all block sizes.
+  
+  * Full-frame luma halfpel interpolation.
+  
+  * 8x8/4x4/2x2 SATD.
+  
+  * Block copy for all block sizes.
+  
+  * SSD for all block sizes.
+  
+  * Weighting for all block sizes.
+  
+  * Deblocking filter.
+  
+  * AQ functions.
+  
+  * RDOQ functions.
+  
+  * CABAC functions.
+  
+  * Motion vector & merge candidate prediction.
+

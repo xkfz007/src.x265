@@ -1,0 +1,229 @@
+# Copyright (c) 2014, VANTRIX CORPORATION. All rights reserved. See LICENSE.txt
+# for the full license text.
+
+import os
+
+# Set the version number.
+F265_VERSION="0.1"
+
+# Write the content of the file specified.
+def write_file(path, data):
+    f = open(path, "wb")
+    f.write(data)
+    f.close()
+
+# MinGW auto detection.
+if os.environ.get('MSYSTEM') != None: mingw = 1
+else: mingw = 0
+
+# OS X auto detection.
+if ARGUMENTS.get('OS', Platform()).name == 'darwin': os_x_flag = 1
+else: os_x_flag = 0
+
+# Supported command-line variables.
+vars = Variables('options.py')
+vars.AddVariables(
+    ('prefix', 'Installation prefix', '/usr/local'),
+    ('cc', 'C compiler', 'gcc'),
+    ('cflags', 'C compiler options', ('-g3 -O2 -std=gnu99 %s -Wall '
+                                      '-Wno-write-strings -Wno-parentheses '
+                                      '-Wno-uninitialized'
+                                      % ('' if mingw else '-fPIC'))),
+    (BoolVariable('asm', 'Assembly support', 1)),
+    (EnumVariable('bd', 'Bit depth targets', 'all',
+                  allowed_values=('low', 'high', 'all'))),
+    (EnumVariable('libav', 'Version of libavcodec/libavformat', 'new',
+                  allowed_values=('none', 'old', 'new'))),
+    (BoolVariable('cli', 'Build the client', 1)),
+    (BoolVariable('yuvdiff', 'Image analysis tool', 0)),
+    (BoolVariable('perf', 'Performance benchmarking support', 0)),
+    ('static', 'Static library folder', ""),
+    ('static_dep', 'Static library system dependencies', "z pthread")
+)
+
+# Support for scons -h.
+env = Environment(ENV = os.environ, variables = vars)
+Help(vars.GenerateHelpText(env))
+
+# Parse command-line arguments.
+vars.Update(env, ARGUMENTS)
+unknown = vars.UnknownVariables()
+if unknown:
+    print "Unknown variables:", unknown.keys()
+    Exit(1)
+
+# Changes to default values are saved.
+vars.Save('options.py', env)
+
+# Reference environment.
+# Forces the use of lib math (-lm).
+ref_env = Environment(ENV = os.environ,
+                      variables = vars,
+                      CC = '${cc}',
+                      CCFLAGS = '${cflags}')
+if mingw: ref_env.Append(tools = ['mingw'])
+conf = Configure(ref_env)
+if not conf.CheckLib('m'):
+    print 'Did not find libm.a or m.lib, exiting!'
+    Exit(1)
+ref_env = conf.Finish()
+
+# Storage for built object files.
+obj_files = []
+
+# Build ktools.
+ktools_c_files = ['karray.c', 'khash.c', 'klist.c', 'krb_tree.c',
+                  'kstr.c', 'ktools.c', 'kutil.c']
+ktools_env = ref_env.Clone(CPPPATH = 'f265/ktools')
+for c_file in ktools_c_files:
+    obj_files += ktools_env.Object('build/f265/ktools/' + c_file[:-2],
+                                   'f265/ktools/' + c_file)
+
+# Create config file.
+f265_cfg = ref_env.Clone()
+comment = "// "
+lbd_str = hbd_str = comment
+if f265_cfg['bd'] == 'all' or f265_cfg['bd'] == 'low': lbd_str = ""
+if f265_cfg['bd'] == 'all' or f265_cfg['bd'] == 'high': hbd_str = ""
+
+asm_str = comment
+if f265_cfg['asm']: asm_str = ""
+
+no_str = old_str = new_str = comment
+if f265_cfg['libav'] == 'none': no_str = ""
+if f265_cfg['libav'] == 'old': old_str = ""
+if f265_cfg['libav'] == 'new': new_str = ""
+
+perf_str = comment
+if f265_cfg['perf']: perf_str = ""
+
+s = ("#ifndef F265_CONFIG_H\n"
+     "#define F265_CONFIG_H\n"
+     "\n"
+     "// Defined if stdint.h is available.\n"
+     "#define F265_HAVE_STDINT\n"
+     "\n"
+     "// Defined if stdio.h is available.\n"
+     "#define F265_HAVE_STDIO\n"
+     "\n"
+     "// Defined if pthread.h is available.\n"
+     "#define F265_HAVE_PTHREAD\n"
+     "\n"
+     "// Defined if low/high bit depths are supported.\n"
+     "%s#define F265_HAVE_LBD\n"
+     "%s#define F265_HAVE_HBD\n"
+     "\n"
+     "// Defined if assembly support is enabled.\n"
+     "%s#define F265_HAVE_ASM\n"
+     "\n"
+     "// Defined if debugging is enabled.\n"
+     "#define F265_DEBUG\n"
+     "\n"
+     "// Defined if performance benchmarking is supported.\n"
+     "%s#define F265_PERF_BENCHMARK\n"
+     "\n"
+     "// Defined if libavcodec/libavformat are not installed.\n"
+     "%s#define F265_NO_LIBAV\n"
+     "// Defined if old libavcodec/libavformat are installed.\n"
+     "%s#define F265_USE_OLD_LIBAV\n"
+     "// Defined if new libavcodec/libavformat are installed.\n"
+     "%s#define F265_USE_NEW_LIBAV\n"
+     "\n"
+     "// Version number.\n"
+     "#define F265_VERSION \"%s\"\n"
+     "\n"
+     "#endif") % (lbd_str, hbd_str, asm_str, perf_str, no_str, old_str, new_str, F265_VERSION)
+if not os.path.isdir('build/f265'): Execute(Mkdir('build/f265'))
+write_file('build/f265/f265_config.h.tmp', s)
+f265_cfg.Command('build/f265/f265_config.h', 'build/f265/f265_config.h.tmp',
+                 "cp $SOURCES $TARGETS")
+
+# Compile bit depth independent code.
+bdi_c_files = ['bdi.c', 'bdi_ro.c', 'parse.c']
+
+# Link perf.c if benchmarking support is active.
+if f265_cfg['perf']: bdi_c_files.append("perf.c")
+
+bdi_env = ref_env.Clone(CPPPATH = ['build', '.', 'f265/ktools'])
+for c_file in bdi_c_files:
+    obj_files += bdi_env.Object('build/f265/' + c_file[:-2], 'f265/' + c_file)
+
+bdi_a_files = ['pixel.asm', 'dct.asm', 'encode.asm']
+if f265_cfg['asm']:
+    asm_dir = 'f265/asm/'
+    asm_arch = "ARCH_X64" if mingw else "ARCH_AMD64"
+    for arch in ['avx2']:
+        for a_file in bdi_a_files:
+            in_path = os.path.join(asm_dir, arch, a_file)
+            out_path = 'build/f265/%s/%s' % (arch, a_file[:-4] + '.o')
+            asm_format = "win64" if mingw else "elf64"
+            if os_x_flag: asm_format = "macho64"
+            cmd = ["nasm", "-D", asm_arch, "-i", asm_dir, "-f", asm_format, in_path, "-o", out_path]
+            obj_file = env.Command(out_path, in_path, " ".join(cmd))
+            obj_files += obj_file
+            Depends(obj_file, os.path.join(asm_dir, 'x86inc.asm'))
+
+# Bit depth dependent files.
+bdd_files = ['enc.h', 'entropy.c', 'analyze.c', 'bs.c', 'deblock.c', 'enc.c',
+             'hm.c', 'inter.c', 'intra.c', 'la.c', 'pixel.c', 'rec.c', 'me.c', 'me_hm.c', 'rc.c']
+
+# Create low and/or high bit depth version(s).
+for bd in ['low', 'high']:
+    if env['bd'] != 'all' and env['bd'] != bd: continue
+    bld = Builder(action =  "sed 's/venc/f265_%s/g' < $SOURCE > $TARGET"
+                            % ('lbd' if bd == 'low' else 'hbd'))
+    build_dir = 'build/lbd' if bd == 'low' else 'build/hbd'
+    bd_def = 'F265_LBD' if bd == 'low' else 'F265_HBD'
+    bd_env = ref_env.Clone(CPPDEFINES = bd_def,
+                           CPPPATH = [build_dir, '.', 'build', 'f265/ktools'])
+    bd_env.Append(BUILDERS = {'Sed' : bld})
+    for c_file in bdd_files:
+        bd_env.Sed(build_dir + "/f265/" + c_file, "f265/" + c_file)
+    # Compile low bit depth version.
+    for c_file in bdd_files[1:]:
+        obj_files += bd_env.Object(build_dir + "/f265/" + c_file)
+
+# Build libf265.
+lib_env = ref_env.Clone()
+lib = lib_env.Library('build/libf265', obj_files)
+
+# Try to configure the environment with pkg_config. Do NOT fail on error, this
+# prevents the user from seeing the help screen.
+def do_pkg_config(env):
+    pkg_config_cmd = 'pkg-config libavformat libavcodec libavutil --cflags --libs'
+    try: env.ParseConfig(pkg_config_cmd)
+    except Exception, e: print(e)
+
+# Build f265cli.
+if env['cli'] == 1:
+    cli_env = ref_env.Clone(CCFLAGS = ['${cflags}',
+                                       '-Wno-deprecated-declarations'],
+                            CPPPATH = ['.', 'cli', 'build' ])
+    cli_obj = cli_env.Object('build/cli/cli.o', 'cli/cli.c')
+    lib_to_link_static= ['build/cli/cli.o', 'build/libf265.a']
+    if env['libav'] != 'none':
+        if f265_cfg['static']:
+            for static_dep in ['libavformat', 'libavcodec','libavdevice', 'libavfilter', 'libavutil', 'libswscale' ]:
+                lib_to_link_static.append(os.path.join(f265_cfg['static'], static_dep + '.a'));
+            cli_env.Append(LIBS = f265_cfg['static_dep'].split())
+        else:
+            do_pkg_config(cli_env)
+
+    cli_env.Program('build/f265cli', lib_to_link_static)
+
+# Build yuvdiff.
+if env['yuvdiff'] == 1:
+    cli_env = ref_env.Clone(CCFLAGS = ['${cflags}',
+                                       '-Wno-deprecated-declarations'],
+                            CPPPATH = ['.', 'yuvdiff', 'build'])
+    cli_obj = cli_env.Object('build/yuvdiff_d/yuvdiff.o', 'yuvdiff/yuvdiff.c')
+    lib_to_link_static= ['build/yuvdiff_d/yuvdiff.o']
+    if env['libav'] != 'none':
+        if f265_cfg['static']:
+            for static_dep in ['libavformat', 'libavcodec','libavdevice', 'libavfilter', 'libavutil', 'libswscale' ]:
+                lib_to_link_static.append(os.path.join(f265_cfg['static'], static_dep + '.a'));
+            cli_env.Append(LIBS = f265_cfg['static_dep'].split())
+        else:
+            do_pkg_config(cli_env)
+
+    cli_env.Program('build/yuvdiff', lib_to_link_static)

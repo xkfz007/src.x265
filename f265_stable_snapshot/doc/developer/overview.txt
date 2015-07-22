@@ -1,0 +1,476 @@
+Codec overview
+================================================================================
+
+contact: francois.caron@vantrix.com
+last revision: 2014-02-11
+
+Table of Content
+--------------------------------------------------------------------------------
+ +-1. Foreword
+ +-2. The f265 library
+ |  |
+ |  +-2.1 File organization
+ |  +-2.2 Data structures
+ |  +-2.3 Compilation switches
+ |  +-2.4 Debugging support
+ |  +-2.5 General encoding flow
+ |
+ +-3. The f265 client application
+
+
+1. Foreword
+--------------------------------------------------------------------------------
+
+f265 requires a substantial amount of development efforts to become
+competitive. Although the code base is fairly small, optimizing every part of
+the codec is a constant uphill battle. Behind each optimization, there is trail
+of experiments, research, refactoring, and often a fair amount of setbacks. A
+big part of the fun comes from overcoming those challenges. For those about to
+join us in this difficult endeavour, we salute you!
+
+                                                   - Laurent
+
+2. The f265 library
+--------------------------------------------------------------------------------
+
+2.1 File organization
+--------------------------------------------------------------------------------
+
+A theme-based approach was used to separate the functions into source files. A
+nomenclature consistent with video encoding was used. For instance, intra
+related functions to construct the prediction signal are found in the intra.c
+file, while inter related functions can be found in inter.c.
+
+The BDI acronym stands for Bit Depth Independent. We use it to keep together
+general functions, structures and constants that behave the same regardless of
+the bit depth.
+
+Header files:
+  bdi.h       Standard macros, constants and global variables. No functions.
+  enc.h       Data structures, inline functions and publicly exposed functions.
+  perf.h      Timing related constants, variables and inline functions.
+  f265.h      The public API for client applications.
+  van_cfg.h   Switches to be activated.
+  van.h       Used for HM tests.
+
+Source files:
+  analyze.c  Rate distortion analysis functions.
+  bdi.c      Bit depth independent code.
+  bdi_ro.c   Read only values (tables of precomputed values).
+  bs.c       Bitstream related functions (writing bits).
+  deblock.c  In-loop filter (non SAO).
+  enc.c      Encoder memory management and general control flow.
+  entropy.c  Functions tailored to write the HEVC syntax elements.
+  hm.c       Reference software behavior reproduction.
+  inter.c    P- and B-frame prediction (excludes motion estimation).
+  intra.c    Intra prediction related code.
+  la.c       Lookahead related code.
+  me_hm.c    Motion estimation reproducing the reference software's behavior.
+  me.c       Motion estimation related functions.
+  parse.c    Parameter extraction functions for encoder initialization.
+  perf.c     Timing related functions for benchmarking.
+  pixel.c    Pixel manipulation: copying, filtering, scaling, SAD, etc.
+  rc.c       Rate control related functions.
+  rec.c      HEVC reconstruction, RDOQ.
+
+2.2 Data structures
+--------------------------------------------------------------------------------
+
+The vast majority of the structures used throughout the f265 library are
+defined in the enc.h file. Any structure defined elsewhere is meant to be used
+locally (i.e. where it's declared). It is important that you familiarize
+yourself with the structures found in enc.h. To help you out of the gates, we
+describe many of them here.
+
+Note that details are purposely left out. This document is meant as a companion,
+not a replacement. You still need to read through the code. We did make sure to
+document the members inside each structure to help you understand as quickly as
+possible.
+
+2.2.1 The main encoding structure: f265_enc_thread
+--------------------------------------------------------------------------------
+
+The first structure you need to understand is f265_enc_thread. It is used
+throughout the encoder, whether multithreading is used or not. It contains the
+location (both in terms of pixels and CTBs) of the CTB currently being encoded,
+a pointer to the encoder structure, pointers to the source pixels as well as the
+locations where to write the reconstructed samples, an array of CBs (a flat
+representation of the quadtree structure), the transform tree structure, the
+CABAC bitstream structure, a stash, and a store buffer (more on that later).
+
+For the moment, picture the following:
+
+                       +--> the current position in the frame
+                       |
+                       +--> a flat quadtree of coding blocks
+                       |
+f265_enc_thread -------+--> a flat quadtree of transform blocks
+                       |
+                       +--> the CABAC bitstream
+                       |
+                       +--> other useful variables that cannot be shared
+                       |
+                       +--> a pointer to the shared variables
+
+A fixed sized array is used to store the coding blocks in breadth first order.
+Assuming no restrictions are imposed, the array would look like this:
+
+Flat quadtree representation in a fixed sized array.
++----+----+----+----+----+----+----+-----+----+---+---+---+-----+---+
+| 64 | 32 | 32 | 32 | 32 | 16 | 16 | ... | 16 | 8 | 8 | 8 | ... | 8 |
++----+----+----+----+----+----+----+-----+----+---+---+---+-----+---+
+
+A naive traversal of the array results in a breadth-first traversal of the
+blocks. The index of the first child of each coding block is known by the block
+(more on that in the next section). This value needs to be consulted for a
+depth-first traversal. Note that the use of the child index makes the flat
+structure more compact instead of relying on multiplying the current index to
+reach the first child.
+
+As you'll see, we allocated extra space at the end of the array to hold
+neighboring blocks (top-left, top, top-right and left). We could have used a
+separate array for this, so really, these extra blocks have nothing to do with
+the quadtree.
+
+Four fixed size arrays are also used to store the transform tree nodes. However,
+unlike the coding tree, the arrays starts out "empty". As the encoding
+progresses, entries are appended to the array. Thus, we could end up with an
+array that looks like this:
+
+  A possible transform tree.
+ +----+----+----+---+---+---+---+----+----+
+ | 32 | 16 | 16 | 8 | 8 | 8 | 8 | 16 | 16 |
+ +----+----+----+---+---+---+---+----+----+
+
+Picture the above array as this tree:
+
+          32
+         /  \
+        / /\ \
+       / /  \ \
+     16 16  16 16
+       /  \
+      / /\ \
+     / /  \ \
+    8 8    8 8
+
+Unlike the coding block quadtree, a naive traversal of the array results in a
+depth-first traversal. This is efficient both for writing the bitstream and
+reconstructing the samples. However, all four arrays need to be considered, as
+the content of one array indicates how to interpret the content of another one.
+
+The f265_enc_thread structure also contains multiple arrays used for storage by
+the structures mentioned above. One reason for this is that we allocate a
+single huge chunk of memory during the encoder's initialization. This is more
+effective than using multiple small independent allocations and dealing with
+possible out-of-memory problems.
+
+Most of these arrays are not meant to be manipulated directly. Functions are
+readily available for the ones that are meant to be directly manipulated, such
+as the prediction map. Take a close look at the functions declared in enc.h and
+implemented in enc.c that accept the encoding thread structure. Chances are that
+what you want to read or write is already supported.
+
+2.2.2 The coding block structure: f265_cb
+--------------------------------------------------------------------------------
+
+The f265_cb structure is used to represent an N-by-N coding block. We currently
+make no distinction between a coding "unit" and a coding "block". The size of
+the block is kept in a logarithmic scale. It is more efficient to use a left
+shift than to call the log function (or use a lookup table). The value
+represents the size of the luma component. The subsampling scheme needs to be
+taken into account to derive the size of the block when processing the chroma
+components.
+
+The block also contains its position relative to the top-left corner of the
+current CTB (in pixels and CB units). This partially explains why the coding
+block quadtree does not start "empty" like the transform block quadtree. To know
+a coding block's absolute position, you simply have to add its relative position
+to the offset held in the f265_enc_thread structure. Again, the pixel offsets
+are in terms of the luma components. They need to be divided by 2 when 4:2:0
+subsampling is used.
+
+Each f265_cb structure contains storage for both the intra and inter prediction
+values. This excludes the actual prediction samples. The "flags" and
+"inter_part" fields need to be investigated to avoid using stale data.
+
+The "flags" bitfield indicates whether the coding block uses intra or inter
+prediction, if it's present in the picture, if it can be used (partial blocks
+are forbidden), if it's split or if it's skipped (inter prediction mode). The
+flags are described in the bdi.h file. Search for "F265_CB_". The flags
+signaling a coding block's presence and availability are expected to be set
+before the encoding process for the current CTB will be set. Blocks that are
+located on the right and bottom borders may also have the split flag activated
+since partial blocks aren't allowed. The remaining flags are expected to be set
+during the block analysis. The reconstruction functions follow these flags
+blindly.
+
+When the intra flag is raised, consider that the intra prediction information
+is up-to-date and that the inter prediction information is stale. When it's
+cleared, assume the opposite.
+
+The "inter_part" field specifies how to interpret the inter prediction
+information held. This field holds no meaning when intra prediction is used. The
+allowed values are defined in bdi.h. Search for "F265_PART_".  Notice that
+partitioning an inter block into four prediction blocks is not supported even
+though a constant is provided.
+
+2.2.3 The transform tree structure: f265_tt_enc
+--------------------------------------------------------------------------------
+
+As mentioned in section 2.2.1 above, we choose a flat structure to represent
+the transform tree. Moreover, we also choose not to root a transform tree in
+the coding blocks, but to root it in the f265_enc_thread structure.
+
+Four fixed size arrays, owned by the f265_enc_thread structure, are used to
+store the transform tree information. The "tmap" array is where the transform
+tree's layout is stored. Each entry represents an 8-bit field indicating if
+the transform block is split or whole, the transform bypass flags and whether
+or not residual information remains after transformation and scaling (the CBF
+flags). An unsplit transform block with at least one raised CBF flag means that
+there's a f265_tb_enc entry in the "tb" array. Entries in the "sb" array are
+signaled by the f265_tb_enc structures, and entries in the "levels" array are
+signaled by the f265_sb_enc structures.
+
+The f265_tt_enc structure is used to keep track of the "write" pointers in each
+of the arrays mentioned in the paragraph above. At the start of the analysis
+process, the pointers of the f265_tt_enc are reset to point to the first
+address of the four structures. During the analysis stage, the pointers are
+updated as entries are appended to the different buffers. When the analysis is
+over, the final reconstruction process will again reset the pointers, this time
+to traverse the transform tree.
+
+2.2.4 The analysis stash: f265_stash
+--------------------------------------------------------------------------------
+
+When we started working on RDO, we quickly realized that simply keeping track of
+the best prediction information and constantly reconstructing the samples was
+ineffective. We needed a way to store intermediate results.
+
+Keeping the information on the stack wasn't really an option. Dynamically
+allocating memory wasn't an acceptable alternative. We needed stack-like storage
+without the memory allocation headaches. This is how we came up with the stash.
+
+The f265_stash structure owns a byte buffer where we can write intermediate
+analysis results to avoid costly computations. This buffer is managed with
+"frames": the content of the stash is appended to the buffer so it is possible
+to push and pop "frames". The "flags" field simply controls what gets written
+to the buffer when we wish to save intermediate results.
+
+Note that the "fields" member is not saved each time a new "frame" is pushed to
+the stash. It is the client code's responsibility to keep track of this value if
+it wishes to change its value. Failure to do so would result in non-symmetric
+push and pop operations, likely resulting in stale data.
+
+The functions required to correctly use the f265_stash structure are all found
+in the analyze.c file. These functions are private to the analysis code, as the
+stash is tailored for RDO.
+
+2.2.5 The store buffer
+--------------------------------------------------------------------------------
+
+The store buffer complements the stash buffer. It is used to store large
+temporary block data such as pixels and DCT coefficients, possibly in
+stash-like fashion.
+
+The client code allocates memory by updating the allocation offset. The
+allocations are aligned on a cache line boundary since the assembly functions
+rely on some of their parameters being aligned for faster processing.
+
+The memory after the current allocation offset is called the spill buffer. It
+is reserved for use by the assembly functions. Since the spill buffer is kept
+aligned, the assembly functions and the rest of the codec need not and should
+not use the stack for temporary memory allocations.
+
+2.2.6 The CABAC family of structures
+--------------------------------------------------------------------------------
+
+Simplifying the CABAC process is a simple way to accelerate block analysis. To
+do this, we choose to separate the CABAC "engine" from the contexts. The
+f265_cabc_bs structure serves as a context container and dispatches the actual
+"writing" to an engine.
+
+We defined three engines: "raw", "rdo" and "sao". The first two are currently
+functional. The "sao" engine isn't supported yet. Note that only one engine can
+be active as they share the same memory location (an union).
+
+The f265_cabac_raw structure holds the required fields to keep track of the
+current range and knows where to output bits. This structure is used when a
+valid stream needs to be outputted.
+
+The f265_cabac_rdo structure simply contains an integer used to count fractional
+bits. This mimics the reference software. During the analysis stage, the CABAC
+states are updated as if we were writing an actual stream. However, an estimated
+amount of bits is updated.
+
+Now it is important to understand that the analysis process does in fact update
+the contexts stored in the f265_cabac_bs structure. Thus, the contexts need to
+be stored so we may rollback to the initial state and proceed to write a valid
+stream using the f265_cabac_raw "engine". The f265_cabac_snapshot structure
+provides the means to copy an engine's state and/or the current contexts.
+
+All the functions to manipulate the f265_cabac_bs structure and correctly use
+the f265_cabac_snapshots are located in the bs.c file. The entropy.c files holds
+the functions to write the H.265 syntax elements. These functions basically call
+the functions listed in bs.c. The "choice" of the CABAC engine is triggered by
+the F265_RDO switch (see the next section).
+
+2.3 Compilations switches
+--------------------------------------------------------------------------------
+
+Two preprocessor macros are used as compilation switches to reduce code
+duplication: F265_LBD and F265_RDO. The former is used to deal with the bit
+depth of the input samples. The latter is used to differentiate the actual CABAC
+process from the estimation process. Both are described below.
+
+2.3.1 Input sample bit depths: F265_LBD
+--------------------------------------------------------------------------------
+
+The f265 library supports both low and high bit depth inputs. The F265_LBD
+preprocessor switch controls the actual underlying pixel type. This is defined
+in the enc.h file.
+
+It is important to understand that all the functions that accept pixel inputs
+are duplicated because of this. Thus, ALWAYS use the f265_pix type when dealing
+with samples. Pixel manipulation functions are also provided in the pixel.c
+file.
+
+2.3.2 Raw CABC vs. RDO CABAC: F265_RDO
+--------------------------------------------------------------------------------
+
+As mentioned in the section 2.2.5 above, three different CABAC writing modes are
+supported. The default mode is "raw", which is the actual entropy coding output
+defined by the H.265 specification. The "rdo" mode is activated by defining the
+F265_RDO switch prior to including the entropy.c file. Have a look at the
+analyze.c file. You should see the following two lines near the top of the file:
+
+  #define F265_RDO
+  #include "entropy.c"
+
+Note that the order is important here! This tells the compiler that the
+estimation functions will be used. For convenience, you will also see that the
+enc.h file defines a single of the functions found in entropy.c. Including the
+entropy.c file as shown above makes all these functions local to the current
+file including them. Again, these functions are likely to be duplicated because
+of the various modes. If, for any reason, you want to modify any of the
+functions, keep this in mind!
+
+2.4 Debugging support
+--------------------------------------------------------------------------------
+
+Two useful switches are defined to output information to the standard output:
+VAN_TRACE_ANALYSIS and VAN_TRACE_SYNTAX. Both can be activated at the same time.
+However, the information will appear interleaved.
+
+The VAN_TRACE_ANALYSIS can be uncommented in the analyze.c file directly. When
+activated, the distortion, the bit count and the RDO costs of the different
+modes tested are printed. The output is structured as to show what CB is being
+processed, what prediction type is studied, and what current mode is used. This
+may help you understand why a certain mode was choosen over other alternatives.
+Note that the amount of information logged grows quickly. For convenience, the
+venc_trace_analysis_flag global variable can be set to 0 or 1 to control when
+the output is desired. It is defined in the analyze.c file when the preprocessor
+macro is defined.
+
+The VAN_TRACE_SYNTAX macro on the other hand can be uncommented in the van_cfg.h
+file. When defined, the encoder will print to the standard output the name of
+the syntax element being written to the bitstream as well as its value. This
+works when running the entropy coder in "raw" or "rdo" mode (see section 2.2.5
+above for more details). The venc_trace_syntax_flag is provided to control the
+output of the syntax elements.
+
+2.5 General encoding flow
+--------------------------------------------------------------------------------
+
+Here we assume that the client application has correctly initialized the encoder
+and that frames are ready to be sent to the encoder.
+
+The encoding process can be split into X steps. Each of them are described
+below.
+
+2.5.1 Encoding requests
+--------------------------------------------------------------------------------
+
+Client applications do not push frames to the f265 library. Rather, they push
+encoding requests (see f265.h for details). Essentially, an encoding request
+represents an input frame, an output frame and a few flags that the encoder will
+treat as hints. The encoder may choose to ignore these flags. This is done by
+calling the venc_process_enc_req function. The function is declared in enc.h
+and implemented in enc.c.
+
+Upon receiving a valid encoding request, the encoder will add the input frame to
+the lookahead. Until enough frames have been received, the lookahead does not
+output a frame to be encoded. Once enough frames have been buffered, the
+lookahead starts returning frames, and the actual encoding process starts.
+
+2.5.2 Encoding a frame
+--------------------------------------------------------------------------------
+
+Currently, only single-threated frame encoding is supported. Frames outputted by
+the lookahead are forwarded to the venc_encode_frame_mt_none function in enc.c.
+There, each frame is encoded into a single slice and the result is checked in
+the venc_check_enc_result function.
+
+When slice support is added to the encoder, this function will need to be
+updated. The section index is currently hardcoded to 0.
+
+Frames are encoded as sections (e.g slice). Encoding a section boils down to
+encoding a series of CTBs. The order follows the slice/tile layout.
+
+2.5.3 Encoding a section
+--------------------------------------------------------------------------------
+
+Sections and slices are slightly different. A section represents a series of
+CTBs as defined by a predetermined layout. For instance, we may choose to split
+a frame into lines of CTBs. Each line would represent a section. Slices on the
+other hand are a container used to transmit a series of CTBs from an encoder to
+a decoder. When a maximum packet size (in bytes) must be respected, a section
+may be split into multiple slices.
+
+Support for multiple slices per section is supported, but it is hidden from the
+venc_encode_section function. The function looks as if a section is a slice.
+The boundaries are located, a chunk is obtained and the CABAC engine is
+initialized. Then, each CTB of the section is processed. Starting new slices
+inside the current section is handled in the venc_check_ctb function. Note that
+starting new slices inside a section occurs when a specific layout is required
+and the maximum packet size (in bytes) is capped.
+
+After completing the section, the result is validated by venc_check_enc_result.
+The encoder will either accept the result and move to the next section or frame,
+reject the result and try recoding the section, abort the process if required
+to, or signal an error.
+
+2.5.4 Encoding a CTB
+--------------------------------------------------------------------------------
+
+The venc_encode_ctb function is called repeatedly by the venc_encode_section
+function. There, the encoder locates the next CTB to be encoded according to the
+defined layout, runs RDO and updates the encoding thread's internal state once
+an acceptable result was returned.
+
+The venc_load_ctb function is where the encoder updates the CTB information held
+in the encoding thread (position, neighbours, etc.). It is also where CBs that
+extend beyond the picture borders are identified and forced to be split.
+
+2.5.5 Running RDO on the current CTB
+--------------------------------------------------------------------------------
+
+The most complex function called in the general encoding flow is by far the
+venc_analyze_ctb function. There, RDO is performed to figure out the optimal
+CTB layout, the best prediction mode for each CB in the quadtree and the
+optimal transform tree for each CB.
+
+3. The f265 client application
+--------------------------------------------------------------------------------
+
+f265cli is a basic client application that correctly uses the f265 library. It
+is located in the "cli/" directory and consists of a single file. Support for
+libavcodec and libavformat is suggested but not required. Both the "old" and
+the "new" versions of libavcodec/libavformat are supported. This can be
+configured before the application is compiled. Note that without support for
+libavcoded/libavformat, the client application will only accept raw YUV inputs.
+
+The client application simply loops through the content of the input file until
+the required number of frames has been sent to the encoder or an end-of-file
+marker is met.
+

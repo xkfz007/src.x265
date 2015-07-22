@@ -1,0 +1,402 @@
+This document describes how to compile the codec.
+
+
+Dependencies
+================================================================================
+
+- gcc (or another GNU-compatible C compiler)
+- python (version 2.X.X)
+- scons
+- nasm (version >= 2.10) (optional)
+- libav (optional)
+
+
+
+Building f265 on UNIX
+================================================================================
+
+
+Build the library and the client
+--------------------------------------------------------------------------------
+    $ scons 
+
+If nasm version 2.10+ is not installed, you must disable assembly 
+optimizations with "asm=0".
+
+    $ scons asm=0
+
+If libav is not installed, you must disable it with "libav=none".
+
+    $ scons libav=none
+
+If libav is installed, but you get the error "implicit declaration of function
+'avcodec_decode_video2'" you must use the old interface of libav with
+"libav=old".
+
+    $ scons libav=old
+
+
+
+Building f265 on Windows
+================================================================================
+
+This guide lists the steps required to build f265 on Windows 7 Enterprise
+edition. These steps may work on another version of Windows, but it has not
+been tested.
+
+
+Step 1. Installing MinGW
+--------------------------------------------------------------------------------
+
+Download and run the installer from http://sourceforge.net/projects/mingwbuilds/files/mingw-builds-install/mingw-builds-install.exe/download
+
+Let the installation wizard walk you through the process. It was tested with the 
+following options:
+
+           Version: 4.8.1
+      Architecture: x64
+           Threads: posix
+         Exception: seh
+    Build revision: 5
+
+Most of them are the default options. The important thing here is to make sure 
+that x64 is the architecture.
+
+Make sure you change the install directory to C:\mingw. Once you have completed 
+all the steps, you should get a message like so:
+
+    $ Wizard copied x64-4.8.1-posix-seh-rev5 files on the station
+
+IMPORTANT NOTES.
+ - C:\mingw\mingw64\bin\ contains gcc and g++.
+ |+- You do not have to do anything else.
+
+
+Step 2. Installing MSYS
+--------------------------------------------------------------------------------
+
+Download MSYS from http://sourceforge.net/projects/mingw-w64/files/External%20binary%20packages%20%28Win64%20hosted%29/MSYS%20%2832-bit%29/.
+
+MSYS is an archive. You do not have to install anything. Extract the content of
+the archive to c:\msys. Note that the archive contains a folder. The idea is to
+have the content of that folder in c:\msys, not a folder in a folder.
+
+Run the MSYS batch file. You should find yourself in a shell. From there:
+    $ cd /etc
+    $ cat fstab.sample | sed -e "s/mingw/mingw\/mingw64/" > fstab
+
+Quit MSYS then relaunch it. Run "gcc --version". You should get info about the
+compiler version. Close MSYS again.
+
+
+Step 3. Installing Python
+--------------------------------------------------------------------------------
+
+Download the Python 2.7.6 Windows Installer (https://www.python.org/downloads/windows/). 
+Run the installer using all the default settings.
+
+IMPORTANT. You HAVE to install Python version 2.7.5 or 2.7.6 32-bit. It's for 
+your own good. Using a 64-bit version of python, or python version 3.X.X WILL 
+create problems.
+
+NOTE. You have to manually add the following to the PATH environment variable:
+"C:\Python27;C:\Python27\Lib\site-packages\;C:\Python27\Scripts\;"
+1. Go to start.
+2. Right click "Computer".
+3. Select "Properties" from the pop-up menu.
+4. Select "Advanced System Settings" in the "Control Panel Home" menu.
+5. Select the "Advanced" tab if it is not already selected.
+6. Click on the "Environment Variables..." button.
+7. In either the "User variables for <username>" (top half of the window) or
+   "System variables" (bottom half of the window) edit or add the "Path"
+   variable.
+   *Note that the top half only affects your user, while the bottom half affects
+   all users. I edited the "Path" variable for all users since the machine is
+   shared.
+8. In the dialog box, add "C:\Python27", "C:\Python27\Lib\site-packages" and
+   "C:\Python27\Scripts". Separate all three entries by semi-colons (;).
+9. Click "OK" to close the "Edit" dialog box.
+10. Click "OK" to close the "Environment Variables" window.
+11. Click "OK" to close the "System Properties" window.
+
+Once that's done, launch MSYS again and run "which python". You should get
+something along the lines of "/c/Python27/python.exe". Close MSYS.
+
+
+Step 4. Installing SCons
+--------------------------------------------------------------------------------
+
+Download the SCons Windows installer (http://www.scons.org/download.php). Run
+the installer using all the default settings (default install location
+c:\Python27\Scripts). SCons should now work fine in the Windows command prompt
+if you correctly updated the PATH environment variable (see Installing Python).
+
+There's a little tweak required for it to work in the MSYS environment. Launch
+MSYS and create a copy of the scons.py file as scons. MSYS does not recognize
+scons.py as a program.
+    $ cd /c/Python27/Scripts/
+    $ cp scons.py scons
+    $ cd /home/
+    $ which scons
+      /c/Python27/Scripts/scons
+
+    $ scons --version
+      SCons by Steven Knight et al.: ...
+
+
+Step 5. Installing NASM
+--------------------------------------------------------------------------------
+
+Download the latest stable version from the NASM website (http://www.nasm.us).
+The link should be on the main page. I downloaded version 2.10.09 for Windows.
+The file was in the "win32" folder and was named nasm-2.10.09-win32.zip.
+
+IMPORTANT. The installer was not tested.
+
+Extract the contents of the archive to C:\nasm. The archive should contain an 
+"rdoff" subfolder, a LICENSE file, and two executables: nasm.exe and 
+ndisasm.exe.
+
+Edit the environment variables to add c:\nasm and c:\nasm\rdoff to the "Path"
+variable. Follow the same steps as above (Step 3. Installing Python).
+
+
+Step 6. Building f265
+--------------------------------------------------------------------------------
+
+In the MSYS shell, cd to the folder containing your local copy of the f265
+encoder. Then,
+
+    $ scons libav=none
+
+
+
+Configuration guide
+================================================================================
+
+
+Compilation targets
+--------------------------------------------------------------------------------
+
+The project has three compile targets.
+
+
+The encoder - libf265
+---------------------
+The main part of the project. It encodes HEVC streams.
+It is always compiled as a static library.
+
+
+The client - f265cli
+--------------------
+A simple example showing how to use the encoder in your own code.
+It can be used to encode a HEVC stream.
+It takes YUV files as input.
+It can also use libav to decode other video formats.
+
+
+Video comparison tool - yuvdiff
+-------------------------------
+A debugging utility. 
+It compares two video streams and display quality or mismatches.
+It takes YUV files as input.
+It can also use libav to decode other video formats.
+
+
+Scons usage and configuration
+--------------------------------------------------------------------------------
+
+You can list all the options and their current value using
+
+    $ scons -h
+
+You can clean the directory with
+
+    $ scons -c
+
+You can configure scons using the key=value format. Setting an option launches
+the build process. Example:
+
+    $ scons cli=1
+
+
+Configuration
+-------------
+
+* prefix="prefix". Default to "/usr/local"
+The installation prefix.
+Affect: all.
+
+* cc="compiler". Default to "gcc".
+The C compiler to use.
+Affect: all.
+
+* cflags="flags". Default to "-g3 -O2 -std=gnu99 -fPIC -Wall -Wno-write-strings -Wno-parentheses -Wno-uninitialized"
+C compiler flags.
+Affect: all.
+
+* asm=[0|1]. Default to "1".
+Enable or disable assembly optimization. Disable if nasm is not installed, or
+if nasm does not support the AVX2 instruction set. At the time of writing, only
+the AVX2 instruction set is supported. You need an Haswell processor or later
+to get the speed-up.
+Affect: libf265.
+
+* bd=[low|high|both]. Default to "both".
+Determine the supported bit depths. "low" is 8-bit-only, "high" is
+non-8-bit-only, "both" supports all bit depths.
+NOTE: leave this value to "both" or you will have compilation problems
+      (will be fixed later). High bit depth is currently unsupported.
+Affect: libf265.
+
+* cli=[0|1]. Default to "1".
+Flag indicating if the client should be built.
+Affect: f265cli.
+
+* yuvdiff=[0|1]. Default to "1".
+Flag indicating if yuvdiff should be built.
+Affect: yuvdiff.
+
+* libav=[none|old|new]. Default to "new".
+Choose which version of libav to use. "none" disables libav, allowing only YUV
+files as input. "old" uses the old libav interface, "new" uses the new libav
+interface (version 10+).
+Affect: f265cli and yuvdiff.
+
+* perf=[0|1]. Default to "0". 
+Enable/disable performance benchmarking support. Benchmarking is done by
+counting the number of cycles spent. See f265/perf.h for more information. 
+Affect: libf265 and f265cli.
+
+* static="path". Default to "".
+The folder containing all libav static libraries. This is used to statically
+include libav in the project. An empty path causes dymamic linking to be used.
+Ignored if libav="none". See "Statically including libav" for more details.
+Affect: f265cli and yuvdiff.
+
+* static_dep="dep". Default to "z bz2 pthread". 
+List of libav system dependencies. Ignored if libav="none" or if static="".
+See "Statically including libav" for more details.
+Affect: f265cli and yuvdiff.
+
+
+
+Statically including libav 
+================================================================================
+
+
+Including libav in the executables
+--------------------------------------------------------------------------------
+
+It's possible to statically include libav in the executable. Please note that
+doing this modifies the licence to match libav's. For a step-by-step
+walkthrough, see below. Here we describe the general method.
+
+You must copy all libav libs in a single directory.
+The directory should contain the following libraries:
+  - libavcodec.a
+  - libavdevice.a
+  - libavfilter.a
+  - libavformat.a
+  - libavutil.a
+  - libswresample.a
+  - libswscale.a
+
+Then, you must configure the project to use them.
+
+Indicate to scons where is the directory containing the static libraries.
+
+    $ scons static=${PATH_TO_THE_DIRECTORY_CREATED_ABOVE}
+    
+If you did not install libav, you need to tell gcc where to find it.
+    
+    $ scons cflags="${CURRENT_CFLAGS} -I${PATH_TO_LIBAV_FOLDER}"
+
+Depending on your setup, libav can use a variety of libraries. If some 
+libraries are missing, use the static_dep to add/remove then.
+
+    $ scons static_dep="z pthread ${LIB_TO_ADD}"
+    
+For windows, you will need to add "ws2_32".
+ 
+    $ scons static_dep="z pthread ws2_32"
+
+
+Step 1. Get and compile libav
+--------------------------------------------------------------------------------
+
+If you are on Windows, we assume you followed the "Building f265 on Windows"
+section and are in a MSYS command prompt. Additionally, you will need to make
+sure that Git's core.autocrlf is not set to true.
+
+    $ git config --list | grep autocrlf
+
+If the value is set to true, you will need to change it to avoid compilation
+problems. This can be done as follows:
+
+    $ git config --global core.autocrlf input
+
+Note for Windows users. libav requires YASM. You will need to install it if
+you do not have it. A MinGW/MSYS ready executable can be downloaded from
+yasm.tortall.net/Download.html. To install it, simply rename the executable
+'yasm.exe' and move it to C:\mingw\mingw64\bin\.
+
+From a MSYS shell, fetch the latest YASM as of April 22nd 2014:
+
+    $ wget http://www.tortall.net/projects/yasm/releases/yasm-1.2.0-win64.exe
+    $ mv yasm-1.2.0-win64.exe /c/mingw/mingw64/bin/yasm.exe
+
+Use git to download the latest libav.
+
+    $ git clone git://git.libav.org/libav.git
+
+In the shell, go to the libav directory. Compile it. Force the use of YASM.
+
+    $ ./configure --as=yasm
+    $ make
+
+
+Step 2. Bundle the libav libraries
+--------------------------------------------------------------------------------
+
+Go to the f265 project folder. Create a new directory in which you will copy
+the libraries.
+
+    $ mkdir static_libav
+    
+Copy the libraries. You must replace "${PATH_TO_LIBAV}" with the path to the
+libav root directory. 
+
+    & cp ${PATH_TO_LIBAV}/lib*/*.a static_libav/
+
+
+Step 3. Configure and recompile f265
+--------------------------------------------------------------------------------
+
+Start by displaying the configuration
+
+    $ scons -h
+    
+Find the "line starting with "cflags" and copy the actual value. Then configure
+scons. 
+
+On Windows, you must first add "ws2_32" to static_dep.
+
+    $ scons -h static_dep="z pthread ws2_32"
+
+Depending on your setup, libav might have linked against additional libraries.
+You must add them to the "static_dep" configuration. For example, if libav
+found bz2,
+
+    $ scons -h static_dep="z pthread bz2"
+
+Now build the library. You must replace ${CURRENT_CFLAGS} by the value copied
+above. You also need to replace ${PATH_TO_LIBAV} by the path to libav. The
+value given to the static argument is the path to folder containing the static
+libraries created in the previous step.
+
+    $ scons static=static_libav libav=new cflags="${CURRENT_CFLAGS} -I${PATH_TO_LIBAV}"
+
+Note for Windows users. Depending on your setup, it is highly probable that you
+will have to specify libav's location using a Windows-style path (e.g.
+"C:\path\to\libav") instead of a Unix-style path (e.g. "/path/to/libav").

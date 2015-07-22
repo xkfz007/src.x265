@@ -1,0 +1,66 @@
+This document describes the regression suite of the project.
+
+
+* Overview.
+
+The regression suite validates that a commit doesn't break the encoder. It
+should be run prior to committing and sending patches for review.
+
+The regression suite is in test/.
+
+The script test/f265test executes the regression tests. It takes as argument a
+file containing the test descriptions. 
+
+The file test/data/regress.ini contains the regression tests (i.e. what you
+must run).
+
+The whole thing is fairly complex to set up (apologies). The next section
+provides you with a step-by-step guide. Any help to make running the regression
+tests easier would be appreciated.
+
+NOTE: at this time the software is very UNIX-centric. It most likely won't run
+on Windows yet. 
+
+
+* Setting up.
+
+Install ffmpeg if you don't have it.
+
+Download the video bundle from f265.org/download#bundle. Expand the archive in
+a directory of your choice, e.g. "video".
+
+For the time being, we still maintain the bit-exact path with HM, so HM has to
+be available for running the tests, too. You need to use our modified version
+of HM. Get it here:
+$ git clone http://f265.org/repos/hm/ -b vantrix
+
+You must tell f265test about your local setup by writing the configuration file
+"f265testrc". This is described in test/README.txt. Seek to the "First-time
+setup" section and follow the instructions there.
+
+Finally, you are ready to run the regression tests! Try it now:
+$ test/f265test -v test/data/regress.ini 
+
+If everything goes well, you should see the test suite output.
+
+** Trouble-shooting.
+
+The most common error is bad paths. Double-check the paths in "f265testrc" and
+in your compilation scripts.
+
+Make sure both f265 and HM compile clean. Try running your compilation scripts
+by hand.
+
+The mp4-to-yuv script used to feed YUV to HM might be causing trouble. You can
+convert your video files manually to YUV and update the videos.ini file with
+the YUV path.
+
+
+* Updating the regression suite.
+
+In the case where the bitstream changes due to improvements on the encoder, the
+regression suite must be updated. This can be automated (see test/README.txt).
+However, you must validate manually that the quality and file size for each
+test are consistent with the previous results (if you lose 1 DB PSNR in a test,
+something is wrong). 
+
