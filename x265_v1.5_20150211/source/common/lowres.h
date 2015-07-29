@@ -45,7 +45,7 @@
 #define DEBUG_COST_EST 0
 
 //rate control output related macros
-#define OUTPUT_FRAME_MB_BITS 1
+#define OUTPUT_FRAME_MB_BITS 0
 #define POC_FORMAT "%5d"
 #define MB_FORMAT "%7d"
 #define FRM_FORMAT "%10lld\n"
@@ -56,10 +56,10 @@
 #define DEBUG_MBTREE_PROCESS 0
 #define DEBUG_AQ_PROCESS 0
 #define DEBUG_VBV_LOOKAHEAD 0
-#define DEBUG_2PASS_WHOLE_PROCESS 1
+#define DEBUG_2PASS_WHOLE_PROCESS 0
 
 
-#define USE_ALL_INTRA 1
+#define USE_ALL_INTRA 0
 #define REENCODE_CTU 0
 
 //bug fixed
@@ -77,6 +77,7 @@
 #define IMPROVE_FRAME_PLANNING 0
 
 #define OUTPUT_RC_STAT 0
+#define USE_NEW_2PASS 1
 
 
 namespace x265 {

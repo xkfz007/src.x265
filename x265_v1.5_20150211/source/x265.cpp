@@ -459,7 +459,7 @@ bool CLIOptions::parseQPFile(x265_picture &pic_org)
  * 2 - unable to open encoder
  * 3 - unable to generate stream headers
  * 4 - encoder abort */
-
+#if !USE_NEW_2PASS
 int main(int argc, char **argv)
 {
 #if HAVE_VLD
@@ -646,3 +646,258 @@ fail:
 
     return ret;
 }
+
+#else
+int x265_encoding_process(x265_param *param,CLIOptions& cliopt,int argc,char*argv[]){
+
+    x265_encoder *encoder = x265_encoder_open(param);
+    if (!encoder)
+    {
+        x265_log(param, X265_LOG_ERROR, "failed to open encoder\n");
+        cliopt.destroy();
+        x265_param_free(param);
+        x265_cleanup();
+        exit(2);
+    }
+
+    /* get the encoder parameters post-initialization */
+    x265_encoder_parameters(encoder, param);
+
+    /* Control-C handler */
+    if (signal(SIGINT, sigint_handler) == SIG_ERR)
+        x265_log(param, X265_LOG_ERROR, "Unable to register CTRL+C handler: %s\n", strerror(errno));
+
+    x265_picture pic_orig, pic_out;
+    x265_picture *pic_in = &pic_orig;
+    /* Allocate recon picture if analysisMode is enabled */
+    x265_picture *pic_recon = (cliopt.recon || !!param->analysisMode) ? &pic_out : NULL;
+    uint32_t inFrameCount = 0;
+    uint32_t outFrameCount = 0;
+    x265_nal *p_nal;
+    x265_stats stats;
+    uint32_t nal;
+    int16_t *errorBuf = NULL;
+    int ret = 0;
+
+    if (!param->bRepeatHeaders)
+    {
+        if (x265_encoder_headers(encoder, &p_nal, &nal) < 0)
+        {
+            x265_log(param, X265_LOG_ERROR, "Failure generating stream headers\n");
+            ret = 3;
+            goto fail;
+        }
+        else
+            cliopt.writeNALs(p_nal, nal);
+    }
+
+    x265_picture_init(param, pic_in);
+
+    if (cliopt.bDither)
+    {
+        errorBuf = X265_MALLOC(int16_t, param->sourceWidth + 1);
+        if (errorBuf)
+            memset(errorBuf, 0, (param->sourceWidth + 1) * sizeof(int16_t));
+        else
+            cliopt.bDither = false;
+    }
+
+    // main encoder loop
+    while (pic_in && !b_ctrl_c)
+    {
+        pic_orig.poc = inFrameCount;
+        if (cliopt.qpfile && !param->rc.bStatRead)
+        {
+            if (!cliopt.parseQPFile(pic_orig))
+            {
+                x265_log(NULL, X265_LOG_ERROR, "can't parse qpfile for frame %d\n", pic_in->poc);
+                fclose(cliopt.qpfile);
+                cliopt.qpfile = NULL;
+            }
+        }
+
+        if (cliopt.framesToBeEncoded && inFrameCount >= cliopt.framesToBeEncoded)
+            pic_in = NULL;
+        else if (cliopt.input->readPicture(pic_orig))
+            inFrameCount++;
+        else
+            pic_in = NULL;
+
+        if (pic_in)
+        {
+            if (pic_in->bitDepth > X265_DEPTH && cliopt.bDither)
+            {
+                ditherImage(*pic_in, param->sourceWidth, param->sourceHeight, errorBuf, X265_DEPTH);
+                pic_in->bitDepth = X265_DEPTH;
+            }
+        }
+
+        int numEncoded = x265_encoder_encode(encoder, &p_nal, &nal, pic_in, pic_recon);
+        if (numEncoded < 0)
+        {
+            b_ctrl_c = 1;
+            ret = 4;
+            break;
+        }
+        outFrameCount += numEncoded;
+
+        if (numEncoded && pic_recon && cliopt.recon)
+            cliopt.recon->writePicture(pic_out);
+        if (nal)
+            cliopt.writeNALs(p_nal, nal);
+
+        cliopt.printStatus(outFrameCount, param);
+    }
+
+    /* Flush the encoder */
+    while (!b_ctrl_c)
+    {
+        int numEncoded = x265_encoder_encode(encoder, &p_nal, &nal, NULL, pic_recon);
+        if (numEncoded < 0)
+        {
+            ret = 4;
+            break;
+        }
+        outFrameCount += numEncoded;
+        if (numEncoded && pic_recon && cliopt.recon)
+            cliopt.recon->writePicture(pic_out);
+        if (nal)
+            cliopt.writeNALs(p_nal, nal);
+
+        cliopt.printStatus(outFrameCount, param);
+
+        if (!numEncoded)
+            break;
+    }
+
+    /* clear progress report */
+    if (cliopt.bProgress)
+        fprintf(stderr, "%*s\r", 80, " ");
+
+fail:
+    x265_encoder_get_stats(encoder, &stats, sizeof(stats));
+    if (param->csvfn && !b_ctrl_c)
+        x265_encoder_log(encoder, argc, argv);
+    x265_encoder_close(encoder);
+    cliopt.bitstreamFile.close();
+
+    if (b_ctrl_c)
+        fprintf(stderr, "aborted at input frame %d, output frame %d\n",
+                cliopt.seek + inFrameCount, stats.encodedPictureCount);
+
+    if (stats.encodedPictureCount)
+    {
+        printf("\nencoded %d frames in %.2fs (%.2f fps), %.2f kb/s", stats.encodedPictureCount,
+               stats.elapsedEncodeTime, stats.encodedPictureCount / stats.elapsedEncodeTime, stats.bitrate);
+
+        if (param->bEnablePsnr)
+            printf(", Global PSNR: %.3f", stats.globalPsnr);
+
+        if (param->bEnableSsim)
+            printf(", SSIM Mean Y: %.7f (%6.3f dB)", stats.globalSsim, x265_ssim2dB(stats.globalSsim));
+
+        printf("\n");
+        fflush(stdout);
+    }
+    else
+    {
+        printf("\nencoded 0 frames\n");
+    }
+
+    x265_cleanup(); /* Free library singletons */
+
+    //cliopt.destroy();
+
+    //x265_param_free(param);
+
+    X265_FREE(errorBuf);
+
+    return ret;
+}
+int main(int argc,char*argv[]){
+
+#if HAVE_VLD
+    // This uses Microsoft's proprietary WCHAR type, but this only builds on Windows to start with
+    VLDSetReportOptions(VLD_OPT_REPORT_TO_DEBUGGER | VLD_OPT_REPORT_TO_FILE, L"x265_leaks.txt");
+#endif
+    PROFILE_INIT();
+    THREAD_NAME("API", 0);
+
+    x265_param *param = x265_param_alloc();
+    CLIOptions cliopt;
+    int ret;
+
+    if (cliopt.parse(argc, argv, param))
+    {
+        cliopt.destroy();
+        x265_param_free(param);
+        exit(1);
+    }
+    if(param->rc.bStatWrite&&!param->rc.bStatRead){//pass=1
+        CLIOptions cliopt_p1,cliopt_p2;
+        x265_param *param_p1 = x265_param_alloc();
+        x265_param *param_p2 = x265_param_alloc();
+        //memcpy(&cliopt_p1,&cliopt,sizeof(CLIOptions));
+        //memcpy(&cliopt_p2,&cliopt,sizeof(CLIOptions));
+        if (cliopt_p1.parse(argc, argv, param_p1))
+        {
+            cliopt_p1.destroy();
+            x265_param_free(param_p1);
+            exit(1);
+        }
+        //memcpy(param_p1, param, sizeof(x265_param));
+        //memcpy(param_p2, param, sizeof(x265_param));
+        param_p1->rc.bStatWrite=1;
+        param_p1->rc.bStatRead=0;
+        //param_p1->rc.bEnableSlowFirstPass=0;
+        //param_p1->rc.statFileName=strdup(param->rc.statFileName);
+        //start the first pass
+        ret=x265_encoding_process(param_p1,cliopt_p1,argc,argv);
+        cliopt_p1.destroy();
+        x265_param_free(param_p1);
+
+
+        if (cliopt_p2.parse(argc, argv, param_p2))
+        {
+            cliopt_p2.destroy();
+            x265_param_free(param_p2);
+            exit(1);
+        }
+
+        param_p2->rc.bStatWrite=0;
+        param_p2->rc.bStatRead=1;
+        //param_p2->rc.bEnableSlowFirstPass=0;
+        //param_p2->rc.statFileName=strdup(param->rc.statFileName);
+
+        //start the second pass
+        ret=x265_encoding_process(param_p2,cliopt_p2,argc,argv);
+        cliopt_p2.destroy();
+        x265_param_free(param_p2);
+
+        if(param->rc.statFileName)
+            free(param->rc.statFileName);//release the memory allocated by strdup
+
+    }
+    else if(!param->rc.bStatWrite&&param->rc.bStatRead){//pass=2
+        
+    }
+    else if(param->rc.bStatWrite&&param->rc.bStatRead){//pass=3
+
+    }
+    else{//pass=0
+
+        ret=x265_encoding_process(param,cliopt,argc,argv);
+    }
+
+    cliopt.destroy();
+    x265_param_free(param);
+
+
+#if HAVE_VLD
+    assert(VLDReportLeaks() == 0);
+#endif
+
+    return ret;
+
+}
+#endif
