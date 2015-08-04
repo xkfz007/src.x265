@@ -253,10 +253,10 @@ public:
     int win_start;
     int win_end;
     char rcinfo_filename[512];
-    int RateControl::get_frame_win_bits(int win_sz) ;
-    void RateControl::rc_stat_init(rc_stat_t* stat) ;
-    void RateControl::rc_stat_check_vbv(rc_stat_t* stat, int bits) ;
-    void RateControl::rc_stat_update(rc_stat_t* stat, int bits, double qp_rc, double qp_aq) ;
+    int get_frame_win_bits(int win_sz) ;
+    void rc_stat_init() ;
+    void rc_stat_check_vbv(int bits) ;
+    void rc_stat_update(int bits, double qp_rc, double qp_aq) ;
 #endif
     RateControl(x265_param *p);
     void setFinalFrameCount(int count);

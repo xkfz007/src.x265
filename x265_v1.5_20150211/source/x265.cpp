@@ -833,7 +833,7 @@ int main(int argc,char*argv[]){
         x265_param_free(param);
         exit(1);
     }
-    if(param->rc.bStatWrite&&!param->rc.bStatRead){//pass=1
+    if(param->rc.bStatWrite&&!param->rc.bStatRead){//--pass 1
         CLIOptions cliopt_p1,cliopt_p2;
         x265_param *param_p1 = x265_param_alloc();
         x265_param *param_p2 = x265_param_alloc();
@@ -878,13 +878,13 @@ int main(int argc,char*argv[]){
             free(param->rc.statFileName);//release the memory allocated by strdup
 
     }
-    else if(!param->rc.bStatWrite&&param->rc.bStatRead){//pass=2
+    else if(!param->rc.bStatWrite&&param->rc.bStatRead){//--pass 2
         
     }
-    else if(param->rc.bStatWrite&&param->rc.bStatRead){//pass=3
+    else if(param->rc.bStatWrite&&param->rc.bStatRead){//--pass 3
 
     }
-    else{//pass=0
+    else{//--pass 0
 
         ret=x265_encoding_process(param,cliopt,argc,argv);
     }

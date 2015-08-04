@@ -1771,7 +1771,10 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
 #if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
   {
     FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
-    fprintf(pf, "Frame cost(%lld): cost_est=%d(%d) cost_est_aq=%d(%d)\n", fenc->costEst[b - p0][p1 - b], fenc->costEst[0][0], fenc->costEstAq[b - p0][p1 - b], fenc->costEstAq[0][0]);
+    if(p0==b&&b==p1)
+        fprintf(pf, "Frame cost(%lld): cost_est=%d(%d) cost_est_aq=%d(%d)\n", fenc->costEst[b - p0][p1 - b], fenc->costEst[0][0], fenc->costEstAq[b - p0][p1 - b], fenc->costEstAq[0][0]);
+    else
+        fprintf(pf, "Frame cost(%lld): cost_est=%d cost_est_aq=%d\n", fenc->costEst[b - p0][p1 - b], fenc->costEstAq[b - p0][p1 - b]);
     fprintf(pf, "Frame cost(%lld): %d intra_mbs=%d nmb=%d\n", fenc->frameNum, score, fenc->intraMbs[b - p0], NUM_CUS);
     fclose(pf);
   }

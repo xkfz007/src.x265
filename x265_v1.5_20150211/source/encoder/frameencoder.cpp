@@ -916,7 +916,7 @@ void FrameEncoder::processRowEncoder(int intRow, ThreadLocalData& tld)
                 curEncData.m_rowStat[row].diagQp = qpBase;
                 curEncData.m_rowStat[row].diagQpScale =  x265_qp2qScale(qpBase);
 
-#if REENCODE_CTU
+#if DISABLE_REENCODE
                 if (reEncode < 0)
                 {
                     x265_log(m_param, X265_LOG_DEBUG, "POC %d row %d - encode restart required for VBV, to %.2f from %.2f\n",

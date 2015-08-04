@@ -356,81 +356,81 @@ int RateControl::get_frame_win_bits(int win_sz) {
     }
     return tmp_bits;
 }
-void RateControl::rc_stat_init(rc_stat_t* stat) {
+void RateControl::rc_stat_init() {
     //rc->brate = AS265_VMF_S32_MAX;
-    stat->curr_bitrate = MAX_DOUBLE;
-    stat->max_bitrate = 0;
-    stat->min_bitrate = MAX_DOUBLE;
-    stat->curr_bitrate_1sec = MAX_INT;
-    stat->max_bitrate_1sec = 0;
-    stat->min_bitrate_1sec = MAX_INT;
-    stat->bitrate_1sec_sum=0;
-    stat->bitrate_1sec_cnt=0;
-    stat->uf_global = 0;
-    stat->of_global = 0;
-    stat->overflow = 0;
-    stat->underflow = 0;
-    stat->total_bits = 0;
-    stat->total_frames = 0;
-    stat->buffer_status = 0;
-    stat->qp_rc_sum = 0;
-    stat->qp_aq_sum = 0;
+   this->stat.curr_bitrate = MAX_DOUBLE;
+   this->stat.max_bitrate = 0;
+   this->stat.min_bitrate = MAX_DOUBLE;
+   this->stat.curr_bitrate_1sec = MAX_INT;
+   this->stat.max_bitrate_1sec = 0;
+   this->stat.min_bitrate_1sec = MAX_INT;
+   this->stat.bitrate_1sec_sum=0;
+   this->stat.bitrate_1sec_cnt=0;
+   this->stat.uf_global = 0;
+   this->stat.of_global = 0;
+   this->stat.overflow = 0;
+   this->stat.underflow = 0;
+   this->stat.total_bits = 0;
+   this->stat.total_frames = 0;
+   this->stat.buffer_status = 0;
+   this->stat.qp_rc_sum = 0;
+   this->stat.qp_aq_sum = 0;
 }
-void RateControl::rc_stat_check_vbv(rc_stat_t* stat, int bits) {
+void RateControl::rc_stat_check_vbv(int bits) {
     double buf_stat = m_bufferFillFinal - bits;
-    stat->uf_flag = 0;
-    stat->of_flag = 0;
-    stat->overflow = 0;
-    stat->underflow = 0;
+    this->stat.uf_flag = 0;
+    this->stat.of_flag = 0;
+    this->stat.overflow = 0;
+    this->stat.underflow = 0;
     if(buf_stat < 0) {
-        stat->uf_flag = 1;
-        stat->underflow = buf_stat;
+        this->stat.uf_flag = 1;
+        this->stat.underflow = buf_stat;
         buf_stat = 0;
     }
     buf_stat += m_bufferRate;
     if(m_isCbr && buf_stat > m_bufferSize) {
-        stat->of_flag = 1;
-        stat->overflow = buf_stat - m_bufferSize;
+        this->stat.of_flag = 1;
+        this->stat.overflow = buf_stat - m_bufferSize;
         //stat->filler = (VMF_S32)((buf_stat - rcc->buffer_size + 7) / 8);
         //int bits = AS265_MAX(FILLER_OVERHEAD , stat->filler) * 8;
         //stat->overflow=buf_stat-bits;
     }
 }
-void RateControl::rc_stat_update(rc_stat_t* stat, int bits, double qp_rc, double qp_aq) {
+void RateControl::rc_stat_update(int bits, double qp_rc, double qp_aq) {
     //static VMF_DOUBLE totalbits = 0;
     //static int total_frames = 0;
-    stat->total_frames++;
-    stat->total_bits += bits;
+    this->stat.total_frames++;
+    this->stat.total_bits += bits;
     //rc->brate = totalbits * 0.001 / (total_frames * rc->m_frameDuration) ;
     //log_message(PRINTF_ID_AS265_RC_ABR, "as265_ratecontrol_end:thread= %d poc= %lld cnt= %lld qp_rc= %.4f qp_aq= %.4f\n", h->tid, h->fenc->frame_count, rce->encode_order, h->fdec->f_qp_avg_rc, h->fdec->f_qp_avg_aq);
     //log_message(PRINTF_ID_AS265_RC_ABR, "as265_ratecontrol_end:thread= %d poc= %lld cnt= %lld bits= %d bitrate= %.4f\n", h->tid, h->fenc->frame_count, rce->encode_order, actualBits, rc->brate);
-    stat->curr_bitrate = stat->total_bits * 0.001 / (stat->total_frames * m_frameDuration) ;
-    if(stat->curr_bitrate > stat->max_bitrate)
-        stat->max_bitrate = stat->curr_bitrate;
-    if(stat->curr_bitrate < stat->min_bitrate)
-        stat->min_bitrate = stat->curr_bitrate;
+    this->stat.curr_bitrate = this->stat.total_bits * 0.001 / (this->stat.total_frames * m_frameDuration) ;
+    if(this->stat.curr_bitrate > this->stat.max_bitrate)
+        this->stat.max_bitrate = this->stat.curr_bitrate;
+    if(this->stat.curr_bitrate < this->stat.min_bitrate)
+        this->stat.min_bitrate = this->stat.curr_bitrate;
 
     if(m_framesDone >= m_fps) {
         int fwin_bits = get_frame_win_bits(m_fps);
-        stat->curr_bitrate_1sec = fwin_bits * 0.001;
-        if(stat->curr_bitrate_1sec > stat->max_bitrate_1sec)
-            stat->max_bitrate_1sec = stat->curr_bitrate_1sec;
-        if(stat->curr_bitrate_1sec < stat->min_bitrate_1sec)
-            stat->min_bitrate_1sec = stat->curr_bitrate_1sec;
-        stat->bitrate_1sec_sum+=stat->curr_bitrate_1sec;
-        stat->bitrate_1sec_cnt++;
+        this->stat.curr_bitrate_1sec = fwin_bits * 0.001;
+        if(this->stat.curr_bitrate_1sec > this->stat.max_bitrate_1sec)
+            this->stat.max_bitrate_1sec = this->stat.curr_bitrate_1sec;
+        if(this->stat.curr_bitrate_1sec < this->stat.min_bitrate_1sec)
+            this->stat.min_bitrate_1sec = this->stat.curr_bitrate_1sec;
+        this->stat.bitrate_1sec_sum+=this->stat.curr_bitrate_1sec;
+        this->stat.bitrate_1sec_cnt++;
     }
     else{
-        stat->max_bitrate_1sec=stat->min_bitrate_1sec=
-            stat->curr_bitrate_1sec=stat->curr_bitrate;
+        this->stat.max_bitrate_1sec=this->stat.min_bitrate_1sec=
+            this->stat.curr_bitrate_1sec=this->stat.curr_bitrate;
     }
-    stat->qp_rc_sum += qp_rc;
-    stat->qp_aq_sum += qp_aq;
-    stat->qp_rc = qp_rc;
-    stat->qp_aq = qp_aq;
-    stat->buffer_status = m_bufferFillFinal;
-    stat->of_global |= stat->of_flag;
-    stat->uf_global |= stat->uf_flag;
+    this->stat.qp_rc_sum += qp_rc;
+    this->stat.qp_aq_sum += qp_aq;
+    this->stat.qp_rc = qp_rc;
+    this->stat.qp_aq = qp_aq;
+    this->stat.buffer_status = m_bufferFillFinal;
+    this->stat.of_global |= this->stat.of_flag;
+    this->stat.uf_global |= this->stat.uf_flag;
 
 }
 #endif
@@ -672,9 +672,9 @@ RateControl::RateControl(x265_param *p)
     win_start = 0;
     win_end = 0;
 
-    rc_stat_init(&stat);
+    rc_stat_init();
 
-    if(m_isAbr) {
+    if(m_isAbr&&!m_param->rc.bStatWrite||m_2pass) {
         const char* pos;
         char* s;
         pos = strrchr(m_param->outputfn, '\\');
@@ -3495,7 +3495,7 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
     if (m_isVbv)
     {
 #if OUTPUT_RC_STAT
-        rc_stat_check_vbv(&stat, actualBits);
+        rc_stat_check_vbv(actualBits);
 #endif
 #if !IMPROVEMENT_OF_VBV
     if(rce->sliceType == B_SLICE) {
@@ -3548,24 +3548,24 @@ int RateControl::rateControlEnd(Frame* curFrame, int64_t bits, RateControlEntry*
 
     nearest_frame_window[win_end % (int)m_fps] = (actualBits);
     win_end = (win_end + 1) % (int)m_fps;
-    rc_stat_update(&stat, actualBits , curEncData.m_avgQpRc, curEncData.m_avgQpAq);
+    rc_stat_update(actualBits , curEncData.m_avgQpRc, curEncData.m_avgQpAq);
 
-    if(m_isAbr) {
+    if(m_isAbr&&!m_param->rc.bStatWrite||m_2pass) {
         FILE* rc_info_f = fopen(rcinfo_filename, "a");
         fprintf(rc_info_f, "%5d %8d %7.2f %7.2f %7.2f %7.2f %7.2f %8d %1d %5d %1d %2d %4.2f %4.2f\n",
             rce->poc, rce->lastSatd,
-            stat.curr_bitrate,
-            stat.min_bitrate,
-            stat.curr_bitrate_1sec,
-            stat.max_bitrate_1sec,
-            stat.min_bitrate_1sec,
-            stat.buffer_status,
-            stat.of_flag,
-            stat.overflow,
-            stat.uf_flag,
-            stat.underflow,
-            stat.qp_rc,
-            stat.qp_aq
+            this->stat.curr_bitrate,
+            this->stat.min_bitrate,
+            this->stat.curr_bitrate_1sec,
+            this->stat.max_bitrate_1sec,
+            this->stat.min_bitrate_1sec,
+            this->stat.buffer_status,
+            this->stat.of_flag,
+            this->stat.overflow,
+            this->stat.uf_flag,
+            this->stat.underflow,
+            this->stat.qp_rc,
+            this->stat.qp_aq
             );
         fclose(rc_info_f);
     }

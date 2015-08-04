@@ -60,7 +60,7 @@
 
 
 #define USE_ALL_INTRA 0
-#define REENCODE_CTU 0
+#define DISABLE_REENCODE 1
 
 //bug fixed
 #define FIX_CTU_COST_BUG 1
