@@ -474,6 +474,17 @@ RateControl::RateControl(x265_param *p)
       }
   }
 #endif
+#if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
+  {
+    static int kk = 0;
+    FILE* fp;
+    if(kk == 0) {
+      fp = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "w");
+      kk = 1;
+      fclose(fp);
+    }
+  }
+#endif
     if (m_param->rc.cuTree)
         m_qCompress = 1;
     else

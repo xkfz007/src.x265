@@ -1327,6 +1327,8 @@ void Lookahead::estimateCUPropagate(Lowres **frames, double averageDuration, int
 #if DEBUG_MBTREE_PROCESS&&KEEP_AS265_SAME_WITH_X265
       {
         FILE* fp = fopen(GET_FILENAME(DEBUG_MBTREE_PROCESS), "a");
+        if(propagate_amount<0)
+            propagate_amount=0;
         fprintf(fp, "mb_x=%d cuIndex=%d propagate_amount=%d\n", blockx, cuIndex, propagate_amount);
         fclose(fp);
       }
@@ -1642,17 +1644,6 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
     int64_t score = 0;
     Lowres *fenc = frames[b];
 
-#if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
-  {
-    static int kk = 0;
-    FILE* fp;
-    if(kk == 0) {
-      fp = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "w");
-      kk = 1;
-      fclose(fp);
-    }
-  }
-#endif
     if (fenc->costEst[b - p0][p1 - b] >= 0 && fenc->rowSatds[b - p0][p1 - b][0] != -1)
         score = fenc->costEst[b - p0][p1 - b];
     else
@@ -1771,10 +1762,11 @@ int64_t CostEstimate::estimateFrameCost(Lowres **frames, int p0, int p1, int b, 
 #if DEBUG_FRAME_COST_OUTPUT&&KEEP_AS265_SAME_WITH_X265
   {
     FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
-    if(p0==b&&b==p1)
-        fprintf(pf, "Frame cost(%lld): cost_est=%d(%d) cost_est_aq=%d(%d)\n", fenc->costEst[b - p0][p1 - b], fenc->costEst[0][0], fenc->costEstAq[b - p0][p1 - b], fenc->costEstAq[0][0]);
-    else
-        fprintf(pf, "Frame cost(%lld): cost_est=%d cost_est_aq=%d\n", fenc->costEst[b - p0][p1 - b], fenc->costEstAq[b - p0][p1 - b]);
+    //if(p0==b&&b==p1)
+    fprintf(pf, "Frame cost(%lld): cost_est=%d(%d) cost_est_aq=%d(%d)\n", fenc->frameNum,
+        fenc->costEst[b - p0][p1 - b], fenc->costEst[0][0], fenc->costEstAq[b - p0][p1 - b], fenc->costEstAq[0][0]);
+    //else
+        //fprintf(pf, "Frame cost(%lld): cost_est=%d cost_est_aq=%d\n", fenc->costEst[b - p0][p1 - b], fenc->costEstAq[b - p0][p1 - b]);
     fprintf(pf, "Frame cost(%lld): %d intra_mbs=%d nmb=%d\n", fenc->frameNum, score, fenc->intraMbs[b - p0], NUM_CUS);
     fclose(pf);
   }
@@ -2341,7 +2333,7 @@ void EstimateRow::estimateCUCost(Lowres **frames, ReferencePlanes *wfref0, int c
                 icostAq = (icost * fenc->invQscaleFactor[cuXY] + 128) >> 8;
                 m_costIntraAq += icostAq;
             }
-#if DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
+#if 0&&DEBUG_FRAME_COST_OUTPUT&&DEBUG_COST_EST&&KEEP_AS265_SAME_WITH_X265
       {
         FILE* pf = fopen(GET_FILENAME(DEBUG_FRAME_COST_OUTPUT), "a+");
         fprintf(pf, "[%d,%d]output_intra[COST_EST]=%d [COST_EST_AQ]=%d\n",cux,cuy,icost,icostAq);
