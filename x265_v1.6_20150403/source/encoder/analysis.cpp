@@ -32,6 +32,7 @@
 #include "analysis.h"
 #include "rdcost.h"
 #include "encoder.h"
+#define DEBUG_CU_DEPTH 0
 
 using namespace x265;
 
@@ -167,6 +168,37 @@ Mode& Analysis::compressCTU(CUData& ctu, Frame& frame, const CUGeom& cuGeom, con
     }
     else
     {
+#if DEBUG_CU_DEPTH
+        //for(int i=0;i<16;i++){
+        //    for(int j=0;j<16;j++){
+        //        fprintf(stdout,"%3d,",g_zscanToRaster[i*16+j]);
+        //    }
+        //    fprintf(stdout,"\n");
+        //}
+        //fprintf(stdout,"\n");
+
+        //for(int i=0;i<16;i++){
+        //    for(int j=0;j<16;j++){
+        //        fprintf(stdout,"%3d,",g_rasterToZscan[i*16+j]);
+        //    }
+        //    fprintf(stdout,"\n");
+        //}
+        fprintf(stdout,"\n");
+        CUData& ctu_ref=*m_slice->m_refPicList[0][0]->m_encData->getPicCTU(ctu.m_cuAddr);
+        fprintf(stdout,"%s:[poc=%d ctu=%d part=%d][poc=%d ctu=%d part=%d]\n",__FUNCTION__,ctu.m_slice->m_poc,
+            ctu.m_cuAddr,ctu.m_numPartitions,ctu_ref.m_slice->m_poc,ctu_ref.m_cuAddr,ctu_ref.m_numPartitions);
+        for(int i=0;i<16;i+=1){
+            fprintf(stdout,"\t\t\t\t");
+            for(int j=0;j<16;j+=1){
+                int pos=g_rasterToZscan[g_zscanToRaster[ctu_ref.m_absIdxInCTU]+i*16+j];
+                int d=ctu_ref.m_cuDepth[pos];
+                //fprintf(stdout,"[%3d:%d] ",pos,d);
+                fprintf(stdout,"%2d",d);
+            }
+            fprintf(stdout,"\n");
+            fflush(stdout);
+        }
+#endif
         if (!m_param->rdLevel)
         {
             /* In RD Level 0/1, copy source pixels into the reconstructed block so
@@ -500,6 +532,9 @@ void Analysis::compressInterCU_dist(const CUData& parentCTU, const CUGeom& cuGeo
     bool mightSplit = !(cuGeom.flags & CUGeom::LEAF);
     bool mightNotSplit = !(cuGeom.flags & CUGeom::SPLIT_MANDATORY);
     uint32_t minDepth = m_param->rdLevel <= 4 ? topSkipMinDepth(parentCTU, cuGeom) : 0;
+#if DEBUG_CU_DEPTH
+    fprintf(stdout,"%s:depth=%d size=%d minD=%d\n",__FUNCTION__,depth,1<<cuGeom.log2CUSize,minDepth);
+#endif
 
     X265_CHECK(m_param->rdLevel >= 2, "compressInterCU_dist does not support RD 0 or 1\n");
 
@@ -751,6 +786,9 @@ void Analysis::compressInterCU_rd0_4(const CUData& parentCTU, const CUGeom& cuGe
     bool mightSplit = !(cuGeom.flags & CUGeom::LEAF);
     bool mightNotSplit = !(cuGeom.flags & CUGeom::SPLIT_MANDATORY);
     uint32_t minDepth = topSkipMinDepth(parentCTU, cuGeom);
+#if DEBUG_CU_DEPTH
+    fprintf(stdout,"%s:depth=%d size=%d minD=%d\n",__FUNCTION__,depth,1<<cuGeom.log2CUSize,minDepth);
+#endif
 
     if (mightNotSplit && depth >= minDepth)
     {
@@ -1821,13 +1859,50 @@ uint32_t Analysis::topSkipMinDepth(const CUData& parentCTU, const CUGeom& cuGeom
         previousQP = cu.m_qp[0];
         if (!cu.m_cuDepth[cuGeom.absPartIdx])
             return 0;
+#if DEBUG_CU_DEPTH
+            fprintf(stdout,"%s:ref0:[%d:%d:%d]partitions=%d\n",__FUNCTION__,parentCTU.m_slice->m_poc,cuGeom.absPartIdx,1<<cuGeom.log2CUSize
+                ,cuGeom.numPartitions );
+            fprintf(stdout,"%s:ref0:[%d:%d:%d]partitions=%d\n",__FUNCDNAME__,parentCTU.m_slice->m_poc,cuGeom.absPartIdx,1<<cuGeom.log2CUSize
+                ,cuGeom.numPartitions );
+            fprintf(stdout,"%s:ref0:[%d:%d:%d]partitions=%d\n",__FUNCSIG__,parentCTU.m_slice->m_poc,cuGeom.absPartIdx,1<<cuGeom.log2CUSize
+                ,cuGeom.numPartitions );
+            fflush(stdout);
+        int kk=(int)(sqrt(cuGeom.numPartitions*1.0)+0.5);
+        for (int i = 0; i < kk; i += 1)
+        {
+            for(int j=0;j<kk;j+=1){
+                int pos=g_rasterToZscan[g_zscanToRaster[cuGeom.absPartIdx]+i*16+j];
+                int d=cu.m_cuDepth[pos];
+                fprintf(stdout,"[%3d:%d] ",pos,d);
+                //fprintf(stdout,"%d ",d);
+            }
+            fprintf(stdout,"\n");
+            fflush(stdout);
+        }
+        for (uint32_t i = 0; i < cuGeom.numPartitions; i += 1)
+        {
+            uint32_t d = cu.m_cuDepth[cuGeom.absPartIdx + i];
+#if 0
+            fprintf(stdout,"ref0:[%d:%d:%d]partitions=%d [%d+%d=%d] d=%d\n",parentCTU.m_slice->m_poc,cuGeom.absPartIdx,1<<cuGeom.log2CUSize
+                ,cuGeom.numPartitions, cuGeom.absPartIdx,i,cuGeom.absPartIdx+i,d);
+#endif
+        }
+#endif
         for (uint32_t i = 0; i < cuGeom.numPartitions; i += 4)
         {
             uint32_t d = cu.m_cuDepth[cuGeom.absPartIdx + i];
             minDepth0 = X265_MIN(d, minDepth0);
             sum += d;
+#if 0
+            fprintf(stdout,"ref0:[%d:%d:%d]partitions=%d [%d+%d=%d] d=%d\n",parentCTU.m_slice->m_poc,cuGeom.absPartIdx,1<<cuGeom.log2CUSize
+                ,cuGeom.numPartitions, cuGeom.absPartIdx,i,cuGeom.absPartIdx+i,d);
+#endif
         }
     }
+#if DEBUG_CU_DEPTH
+    fprintf(stdout,"%s:[%d:%d:%d]depth=%d minD0=%d sum=%d\n",__FUNCTION__,parentCTU.m_slice->m_poc,
+        cuGeom.absPartIdx,1<<cuGeom.log2CUSize,cuGeom.depth,minDepth0,sum);
+#endif
     if (m_slice->m_numRefIdx[1])
     {
         numRefs++;
@@ -1841,6 +1916,10 @@ uint32_t Analysis::topSkipMinDepth(const CUData& parentCTU, const CUGeom& cuGeom
             sum += d;
         }
     }
+#if DEBUG_CU_DEPTH
+    fprintf(stdout,"%s:[%d:%d:%d]depth=%d minD1=%d sum=%d\n",__FUNCTION__,parentCTU.m_slice->m_poc,
+        cuGeom.absPartIdx,1<<cuGeom.log2CUSize,cuGeom.depth,minDepth1,sum);
+#endif
     if (!numRefs)
         return 0;
 
